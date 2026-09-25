@@ -16,13 +16,14 @@ function extractVkElementsFromDom(): any[] {
     const messageWrappers = Array.from(chatRoot.querySelectorAll(
         '[class*="ConvoMessage"][class*="wrapper"], [class*="ConvoMessageWithoutBubble"], [class*="ConvoMessageWithBubble"], [class*="ConvoMessage"]'
     )).filter((el, idx, arr) => {
+        if (el.closest('[class*="pinned"], [class*="Pinned"], [class*="pin"], .ui_scroll_fixed')) return false;
         return el.querySelector('.MessageText, [class*="Message__text"]') !== null &&
                !el.parentElement?.closest('[class*="ConvoMessage"]');
     });
 
     const dateSeparators = Array.from(chatRoot.querySelectorAll(
-        '.StickyDateSeparator, .DateSeparator, [class*="DateSeparator"], [class*="StickyDate"]'
-    ));
+        '.DateSeparator, [class*="DateSeparator"]'
+    )).filter(el => !el.className.includes('StickyDate') && !el.className.includes('sticky-date'));
 
     const domItems: { el: HTMLElement; isBanner: boolean }[] = [];
     
@@ -32,6 +33,8 @@ function extractVkElementsFromDom(): any[] {
     
     // Текстовые блоки с названиями дат ("вчера", "сегодня", "22 сентября")
     const bannerCandidates = Array.from(chatRoot.querySelectorAll('div, span, time')).filter(el => {
+        if (el.closest('.StickyDateSeparator, [class*="StickyDate"], [class*="sticky-date"]')) return false;
+
         const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
         if (txt.length > 25) return false;
         
@@ -83,13 +86,40 @@ function extractVkElementsFromDom(): any[] {
             const timeEl = el.querySelector('.ConvoMessageInfoWithoutBubbles__date, [class*="date"], [class*="time"], [class*="Time"], time');
 
             let cleanText = '';
-            if (textEl) {
-                const clone = textEl.cloneNode(true) as HTMLElement;
-                const reply = clone.querySelector('[class*="Reply"], [class*="quote"]');
-                if (reply) reply.remove();
+            let replyTo: any = undefined;
+
+            const replyNode = el.querySelector('.Reply, [data-testid="vkme_replied_message"], [class*="reply"], .ConvoMessageWithoutBubble__reply');
+            if (replyNode) {
+                const replyTitle = replyNode.querySelector('.Reply__author, [class*="author"], .PeerTitle__title');
+                const replySubtitle = replyNode.querySelector('.Reply__content, .MessagePreview, [class*="content"]');
                 
-                clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
-                cleanText = clone.innerText || clone.textContent || '';
+                const rSender = replyTitle ? (replyTitle.textContent || '').trim() : '';
+                const rText = replySubtitle ? (replySubtitle.textContent || '').trim() : '';
+                
+                if (rSender || rText) {
+                    replyTo = {
+                        sender: rSender,
+                        phone: '',
+                        text: rText
+                    };
+                }
+            }
+
+            const textNodes = Array.from(el.querySelectorAll('.MessageText, [class*="Message__text"]'));
+            if (textNodes.length > 0) {
+                let combinedText = '';
+                for (const tNode of textNodes) {
+                    const clone = tNode.cloneNode(true) as HTMLElement;
+                    const reply = clone.querySelector('[class*="Reply"], [class*="quote"]');
+                    if (reply) reply.remove();
+                    
+                    clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+                    const txt = (clone.innerText || clone.textContent || '').trim();
+                    if (txt) {
+                        combinedText += (combinedText ? '\n---\n' : '') + txt;
+                    }
+                }
+                cleanText = combinedText;
             }
 
             // Пытаемся вытащить точную дату из всплывающих подсказок (title, aria-label) самого сообщения
@@ -113,13 +143,17 @@ function extractVkElementsFromDom(): any[] {
             }
 
             if (cleanText.trim()) {
-                results.push({
+                const msgObj: any = {
                     type: 'message',
                     sender: authorEl ? (authorEl.textContent || '').trim() : '',
                     time: timeStr,
                     text: cleanText.trim(),
                     bannerDate: explicitBannerDate || currentBanner
-                });
+                };
+                if (replyTo) {
+                    msgObj.replyTo = replyTo;
+                }
+                results.push(msgObj);
             }
         }
     }
@@ -130,30 +164,7 @@ function extractVkElementsFromDom(): any[] {
  * Сортировка сырых сообщений по хронологии: старшие даты -> вчера -> сегодня, внутри дня по времени
  */
 function sortMessagesChronologically(messages: any[], fallbackCategory: string = 'today'): any[] {
-    const categoryOrder: Record<string, number> = {
-        'older': 0,
-        'yesterday': 1,
-        'today': 2
-    };
-
-    const getMinutes = (timeStr: string): number => {
-        const m = (timeStr || '').match(/(\d{1,2}):(\d{2})/);
-        if (!m) return 0;
-        return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
-    };
-
-    return messages
-        .filter(m => m.type === 'message')
-        .sort((a, b) => {
-            const catA = a.bannerDate ? getBannerDateCategory(a.bannerDate) : fallbackCategory;
-            const catB = b.bannerDate ? getBannerDateCategory(b.bannerDate) : fallbackCategory;
-            
-            const orderA = categoryOrder[catA] ?? 2;
-            const orderB = categoryOrder[catB] ?? 2;
-            if (orderA !== orderB) return orderA - orderB;
-
-            return getMinutes(a.time) - getMinutes(b.time);
-        });
+    return messages.filter(m => m.type === 'message');
 }
 
 /**
@@ -185,13 +196,20 @@ function filterActualVkMessages(items: any[], chatName: string, chatDateFallback
 
         let msgCategory = item.bannerDate ? getBannerDateCategory(item.bannerDate) : fallbackCategory;
 
-        if (isMessageActual(msgCategory, item.time, item.text)) {
-            validMessages.push({
+        const isActual = isMessageActual(msgCategory, item.time, item.text);
+        console.log(`   🔎 [VK-FILTER] [${chatName}] time=${item.time}, text="${item.text.slice(0, 15)}...", bannerDate=${item.bannerDate}, cat=${msgCategory} -> isActual=${isActual}`);
+
+        if (isActual) {
+            const msgObj: any = {
                 sender: item.sender || lastSender || chatName,
                 phone: '',
                 time: item.time || '',
                 text: item.text.trim()
-            });
+            };
+            if (item.replyTo) {
+                msgObj.replyTo = item.replyTo;
+            }
+            validMessages.push(msgObj);
         }
     }
 
@@ -225,29 +243,29 @@ async function closeActiveVkChat(page: Page) {
  */
 async function getChatHistoryScrollBox(page: Page): Promise<{ x: number, y: number } | null> {
     return await page.evaluate(() => {
-        const target = document.querySelector('[class*="ConvoMessage"], [class*="DateSeparator"], .MessageText');
-        if (!target) return null;
-
-        const scrollable = target.closest('[data-scrollbar="scrollable"]') as HTMLElement;
-        if (scrollable) {
-            const rect = scrollable.getBoundingClientRect();
-            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-        }
-
-        let parent = target.parentElement;
-        while (parent && parent !== document.body) {
-            const style = window.getComputedStyle(parent);
-            if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && parent.scrollHeight > parent.clientHeight) {
-                const rect = parent.getBoundingClientRect();
+        const targets = document.querySelectorAll('[class*="ConvoMessage"], [class*="DateSeparator"], .MessageText');
+        for (const target of Array.from(targets)) {
+            const scrollable = target.closest('[data-scrollbar="scrollable"]') as HTMLElement;
+            if (scrollable) {
+                const rect = scrollable.getBoundingClientRect();
                 return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
             }
-            parent = parent.parentElement;
-        }
 
-        const fallback = target.closest('.ConvoHistory, [class*="ConvoHistory"], .ConvoMain, [class*="ConvoMain"]') as HTMLElement;
-        if (fallback) {
-            const rect = fallback.getBoundingClientRect();
-            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+            let parent = target.parentElement;
+            while (parent && parent !== document.body) {
+                const style = window.getComputedStyle(parent);
+                if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && parent.scrollHeight > parent.clientHeight) {
+                    const rect = parent.getBoundingClientRect();
+                    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+                }
+                parent = parent.parentElement;
+            }
+
+            const fallback = target.closest('.ConvoHistory, [class*="ConvoHistory"], .ConvoMain, [class*="ConvoMain"]') as HTMLElement;
+            if (fallback) {
+                const rect = fallback.getBoundingClientRect();
+                return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+            }
         }
 
         return null;
@@ -274,25 +292,30 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
 
     console.log(`   📜 [VK] Прокручиваем историю [${chatName}] вверх к началу смены...`);
 
-    // Общее хранилище всех сырых сообщений и баннеров, встреченных во время скролла
-    const allSeenRawItems = new Map<string, any>();
+    // Общее хранилище всех сырых сообщений, строго отсортированных (top-to-bottom)
+    const masterList: { key: string; item: any }[] = [];
     const registerItems = (items: any[]) => {
-        for (const item of items) {
-            if (item.type === 'message' && item.text) {
-                const key = `${item.sender}_${item.time}_${item.text}`;
-                if (!allSeenRawItems.has(key)) {
-                    allSeenRawItems.set(key, item);
-                } else {
-                    const existing = allSeenRawItems.get(key);
-                    // Обновляем bannerDate, если раньше он был пустым, а сейчас появился
-                    if (!existing.bannerDate && item.bannerDate) {
-                        existing.bannerDate = item.bannerDate;
-                    }
+        let anchorIndex = -1; // -1 означает конец списка (самые новые)
+        
+        for (let i = items.length - 1; i >= 0; i--) {
+            const item = items[i];
+            const key = item.type === 'message' && item.text ? `${item.sender}_${item.time}_${item.text}` : `banner_${item.text}`;
+            if (!key) continue;
+            
+            const existingIdx = masterList.findIndex(x => x.key === key);
+            
+            if (existingIdx !== -1) {
+                if (!masterList[existingIdx].item.bannerDate && item.bannerDate) {
+                    masterList[existingIdx].item.bannerDate = item.bannerDate;
                 }
-            } else if (item.type === 'banner' && item.text) {
-                const key = `banner_${item.text}`;
-                if (!allSeenRawItems.has(key)) {
-                    allSeenRawItems.set(key, item);
+                anchorIndex = existingIdx;
+            } else {
+                const entry = { key, item };
+                if (anchorIndex === -1) {
+                    masterList.push(entry);
+                    anchorIndex = masterList.length - 1;
+                } else {
+                    masterList.splice(anchorIndex, 0, entry);
                 }
             }
         }
@@ -311,28 +334,28 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
             const el = document.querySelector('.StickyDateSeparator, [class*="StickyDate"], [class*="sticky-date"]');
             return el ? (el.textContent || el.getAttribute('aria-label') || '').trim() : '';
         });
-        const stickyOlder = stickyText && getBannerDateCategory(stickyText) === 'older';
         
-        const reachedOlderBanner = stickyOlder || currentElements.some(
-            item => item.type === 'banner' && item.text && getBannerDateCategory(item.text) === 'older'
-        );
-        if (reachedOlderBanner) {
-            console.log(`   ⏹️ [VK] Достигнута граница старшей даты на шаге скролла вверх (шаг ${step})`);
-            break;
-        }
+        // console.log(`   🔎 [VK-DEBUG] Шаг ${step}: stickyText="${stickyText}"`);
 
-        // Проверяем: есть ли сообщения вчера до 06:00 утра?
-        const reachedPreMorning = currentElements.some(item => {
-            if (item.type !== 'message' || !item.time) return false;
-            const cat = item.bannerDate ? getBannerDateCategory(item.bannerDate) : '';
+        // Проверяем: достигли ли мы границы (старые сообщения или вчера до 06:00)?
+        const firstMsgForCheck = currentElements.find(item => item.type === 'message');
+        const reachedBoundary = (() => {
+            if (!firstMsgForCheck || !firstMsgForCheck.time) return false;
+            const cat = firstMsgForCheck.bannerDate ? getBannerDateCategory(firstMsgForCheck.bannerDate) : '';
+            if (cat === 'older') return true;
             if (cat === 'yesterday') {
-                const m = item.time.match(/(\d{1,2}):(\d{2})/);
+                const m = firstMsgForCheck.time.match(/(\d{1,2}):(\d{2})/);
                 if (m && parseInt(m[1], 10) < 6) return true;
             }
             return false;
-        });
-        if (reachedPreMorning) {
-            console.log(`   ⏹️ [VK] Достигнуты сообщения вчера до 06:00 утра (шаг ${step})`);
+        })();
+
+        if (firstMsgForCheck) {
+            // console.log(`   🔎 [VK-DEBUG] Шаг ${step}: Верхнее сообщение в DOM: time=${firstMsgForCheck.time}, bannerDate=${firstMsgForCheck.bannerDate}, cat=${firstMsgForCheck.bannerDate ? getBannerDateCategory(firstMsgForCheck.bannerDate) : 'none'}`);
+        }
+
+        if (reachedBoundary) {
+            console.log(`   ⏹️ [VK] Достигнута граница (старше вчера или утро вчера) по сообщениям в DOM (шаг ${step})`);
             break;
         }
 
@@ -341,7 +364,7 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
         const firstMsgKey = firstMsg ? `${firstMsg.sender}_${firstMsg.time}_${firstMsg.text.slice(0, 30)}` : '';
         if (firstMsgKey && firstMsgKey === prevFirstMessageKey) {
             unchangedTopCount++;
-            if (unchangedTopCount >= 2) {
+            if (unchangedTopCount >= 4) {
                 console.log(`   ⏹️ [VK] Достигнут самый верх чата (шаг ${step})`);
                 break;
             }
@@ -353,16 +376,21 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
         // Скроллим вверх плавно, чтобы не перепрыгнуть виртуальные элементы
         await page.mouse.wheel(0, -400);
         await page.evaluate(() => {
-            const msg = document.querySelector('[class*="ConvoMessage"], .MessageText');
-            let cur = msg?.parentElement;
-            while (cur && cur !== document.body) {
-                const s = window.getComputedStyle(cur);
-                if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && cur.scrollHeight > cur.clientHeight) {
-                    cur.scrollTop -= 400;
-                    cur.dispatchEvent(new Event('scroll', { bubbles: true }));
-                    break;
+            const msgs = document.querySelectorAll('[class*="ConvoMessage"], .MessageText');
+            for (const msg of Array.from(msgs)) {
+                let cur = msg?.parentElement;
+                let found = false;
+                while (cur && cur !== document.body) {
+                    const s = window.getComputedStyle(cur);
+                    if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && cur.scrollHeight > cur.clientHeight) {
+                        cur.scrollTop -= 400;
+                        cur.dispatchEvent(new Event('scroll', { bubbles: true }));
+                        found = true;
+                        break;
+                    }
+                    cur = cur.parentElement;
                 }
-                cur = cur.parentElement;
+                if (found) break;
             }
         }).catch(() => {});
 
@@ -379,16 +407,21 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
         await page.mouse.wheel(0, 800);
         await page.keyboard.press('PageDown').catch(() => {});
         await page.evaluate(() => {
-            const msg = document.querySelector('[class*="ConvoMessage"], .MessageText');
-            let cur = msg?.parentElement;
-            while (cur && cur !== document.body) {
-                const s = window.getComputedStyle(cur);
-                if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && cur.scrollHeight > cur.clientHeight) {
-                    cur.scrollTop += 800;
-                    cur.dispatchEvent(new Event('scroll', { bubbles: true }));
-                    break;
+            const msgs = document.querySelectorAll('[class*="ConvoMessage"], .MessageText');
+            for (const msg of Array.from(msgs)) {
+                let cur = msg?.parentElement;
+                let found = false;
+                while (cur && cur !== document.body) {
+                    const s = window.getComputedStyle(cur);
+                    if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && cur.scrollHeight > cur.clientHeight) {
+                        cur.scrollTop += 800;
+                        cur.dispatchEvent(new Event('scroll', { bubbles: true }));
+                        found = true;
+                        break;
+                    }
+                    cur = cur.parentElement;
                 }
-                cur = cur.parentElement;
+                if (found) break;
             }
         }).catch(() => {});
 
@@ -402,7 +435,7 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
         const lastMsgKey = lastMsg ? `${lastMsg.sender}_${lastMsg.time}_${lastMsg.text.slice(0, 30)}` : '';
         if (lastMsgKey && lastMsgKey === prevLastMessageKey) {
             unchangedBottomCount++;
-            if (unchangedBottomCount >= 2) {
+            if (unchangedBottomCount >= 4) {
                 break;
             }
         } else {
@@ -419,7 +452,7 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
             fallbackCategory = 'yesterday';
         }
     }
-    const rawItems = Array.from(allSeenRawItems.values());
+    const rawItems = masterList.map(x => x.item);
     const sortedRawItems = sortMessagesChronologically(rawItems, fallbackCategory);
     return filterActualVkMessages(sortedRawItems, chatName, chatDateStr);
 }
@@ -453,13 +486,14 @@ export async function parseVk(context: BrowserContext): Promise<OrderResult[]> {
     await chatItems.first().waitFor({ state: 'visible', timeout: 10000 });
 
     // 1. Сканируем список вниз, чтобы найти границу неактуальных диалогов
+    console.log('\n--- [VK] ЭТАП 1: СКРОЛЛ ВНИЗ ДО ГРАНИЦЫ ---');
     let previousBottomText = "";
     while (true) {
         let count = await chatItems.count();
         if (count === 0) break;
         let bottomChat = chatItems.nth(count - 1);
-
-        let dateText = await bottomChat.evaluate((el: HTMLElement) => {
+        
+        const dateText = await bottomChat.evaluate((el: HTMLElement) => {
             const dateSpan = el.querySelector('.ConvoListItem__date ~ .vkuiVisuallyHidden__host, .ConvoListItem__message > .vkuiVisuallyHidden__host:last-of-type') as HTMLElement;
             const fallbackDateSpan = el.querySelector('.ConvoListItem__date') as HTMLElement;
             return dateSpan ? (dateSpan.innerText || dateSpan.textContent || '').trim() : (fallbackDateSpan ? fallbackDateSpan.innerText.trim() : '');
@@ -468,9 +502,10 @@ export async function parseVk(context: BrowserContext): Promise<OrderResult[]> {
         let check = parseVkDate(dateText);
 
         if (check.isActual) {
+            console.log(`⬇️ [VK] Нижний чат актуален (${check.dateStr} - ${check.reason}). Скроллим вниз...`);
             await bottomChat.hover().catch(() => {});
             await page.mouse.wheel(0, 500);
-            await page.waitForTimeout(800);
+            await page.waitForTimeout(1000);
 
             let newCount = await chatItems.count();
             let newBottom = chatItems.nth(newCount - 1);
@@ -478,89 +513,92 @@ export async function parseVk(context: BrowserContext): Promise<OrderResult[]> {
             if (newBottomText === previousBottomText) break;
             previousBottomText = newBottomText;
         } else {
-            console.log(`⏹️ [VK] Граница диалогов найдена: ${check.dateStr} (${check.reason})`);
+            console.log(`⏹️ [VK] Граница найдена на нижнем чате: ${check.dateStr} (${check.reason})`);
             break;
         }
     }
 
-    // 2. Анализируем все загруженные чаты от верхнего к нижнему
-    let totalCount = await chatItems.count();
-    console.log(`\n📋 [VK] Найдено диалогов в списке: ${totalCount}`);
-    console.log('--- [VK] АНАЛИЗ ДИАЛОГОВ ---');
+    console.log('\n--- [VK] ЭТАП 2: СБОР ЧАТОВ СНИЗУ ВВЕРХ ---');
+    
+    let previousTopText = "";
+    let reachedTop = false;
+    const uniqueOrders = new Map<string, OrderResult>();
 
-    interface VkChatMeta {
-        index: number;
-        name: string;
-        dateStr: string;
-        reason: string;
-    }
-    const actualChats: VkChatMeta[] = [];
+    while (!reachedTop) {
+        let count = await chatItems.count();
+        if (count === 0) break;
 
-    for (let i = 0; i < totalCount; i++) {
-        let chat = chatItems.nth(i);
-        const { chatName, dateText } = await chat.evaluate((el: HTMLElement) => {
-            const titleEl = el.querySelector('.ConvoTitle__author, .ConvoTitle__title, .PeerTitle__title') as HTMLElement;
-            const name = titleEl ? (titleEl.innerText || titleEl.textContent || '').trim() : '';
+        let processedAnyInThisScroll = false;
 
-            const dateSpan = el.querySelector('.ConvoListItem__date ~ .vkuiVisuallyHidden__host, .ConvoListItem__message > .vkuiVisuallyHidden__host:last-of-type') as HTMLElement;
-            const fallbackDateSpan = el.querySelector('.ConvoListItem__date') as HTMLElement;
+        // Идем СНИЗУ ВВЕРХ (от старых к новым)
+        for (let i = count - 1; i >= 0; i--) {
+            let chat = chatItems.nth(i);
+            
+            const isVisible = await chat.isVisible().catch(() => false);
+            if (!isVisible) continue;
 
-            const date = dateSpan ? (dateSpan.innerText || dateSpan.textContent || '').trim() : (fallbackDateSpan ? fallbackDateSpan.innerText.trim() : '');
-            return { chatName: name || `VK Чат`, dateText: date };
-        }).catch(() => ({ chatName: `VK Чат #${i + 1}`, dateText: '' }));
+            const { chatName, dateText } = await chat.evaluate((el: HTMLElement) => {
+                const titleEl = el.querySelector('.ConvoTitle__author, .ConvoTitle__title, .PeerTitle__title') as HTMLElement;
+                const name = titleEl ? (titleEl.innerText || titleEl.textContent || '').trim() : '';
 
-        let check = parseVkDate(dateText);
-        console.log(`[${chatName}] | Дата: ${check.dateStr} | Статус: ${check.reason}`);
+                const dateSpan = el.querySelector('.ConvoListItem__date ~ .vkuiVisuallyHidden__host, .ConvoListItem__message > .vkuiVisuallyHidden__host:last-of-type') as HTMLElement;
+                const fallbackDateSpan = el.querySelector('.ConvoListItem__date') as HTMLElement;
 
-        if (check.isActual) {
-            actualChats.push({
-                index: i,
-                name: chatName,
-                dateStr: check.dateStr,
-                reason: check.reason
-            });
-        } else {
-            console.log(`⏹️ [VK] Достигнут неактуальный чат [${chatName}]. Граница зафиксирована.`);
-            break;
+                const date = dateSpan ? (dateSpan.innerText || dateSpan.textContent || '').trim() : (fallbackDateSpan ? fallbackDateSpan.innerText.trim() : '');
+                return { chatName: name || `VK Чат`, dateText: date };
+            }).catch(() => ({ chatName: `VK Чат`, dateText: '' }));
+
+            let check = parseVkDate(dateText);
+            
+            // Пропускаем старые
+            if (!check.isActual) continue;
+
+            // Нашли необработанный актуальный чат
+            if (!uniqueOrders.has(chatName)) {
+                console.log(`\n[${chatName}] | Дата: ${check.dateStr} | Статус: ${check.reason}`);
+                console.log(`📥 [VK] Открываем: ${chatName}...`);
+                
+                await chat.scrollIntoViewIfNeeded().catch(() => {});
+                await chat.evaluate((el: HTMLElement) => el.click());
+                await page.waitForTimeout(1200); 
+
+                const order = await extractMessagesFromOpenChat(page, chatName, check.dateStr);
+                if (order && order.length > 0) {
+                    uniqueOrders.set(chatName, { messenger: 'VK', chatName, messages: order });
+                } else {
+                    uniqueOrders.set(chatName, { messenger: 'VK', chatName, messages: [] });
+                }
+
+                await closeActiveVkChat(page);
+
+                processedAnyInThisScroll = true;
+                // Прерываем цикл, чтобы начать с самого низа текущего DOM на случай сдвигов
+                break; 
+            }
+        }
+
+        // Если не нашли новых чатов, скроллим вверх
+        if (!processedAnyInThisScroll) {
+            let topChat = chatItems.first();
+            await topChat.hover().catch(() => {});
+            console.log(`⬆️ [VK] Скроллим вверх...`);
+            await page.mouse.wheel(0, -600); 
+            await page.waitForTimeout(1500);
+
+            const { dateText: currentTopText } = await chatItems.first().evaluate((el: HTMLElement) => {
+                const titleEl = el.querySelector('.ConvoTitle__author, .ConvoTitle__title, .PeerTitle__title') as HTMLElement;
+                return { dateText: titleEl ? titleEl.innerText : '' };
+            }).catch(() => ({ dateText: '' }));
+
+            if (currentTopText === previousTopText) {
+                console.log(`⬆️ [VK] Достигнут самый верх списка чатов.`);
+                reachedTop = true;
+            }
+            previousTopText = currentTopText;
         }
     }
 
-    let orders: OrderResult[] = [];
-
-    console.log(`\n📋 [VK] Всего актуальных чатов: ${actualChats.length}`);
-    console.log(`🚀 [VK] Обрабатываем диалоги от самого первого актуального снизу вверх к новым:`);
-
-    // 3. Проходим от САМОГО ПЕРВОГО АКТУАЛЬНОГО (снизу) ВВЕРХ К НАИБОЛЕЕ НОВЫМ
-    for (let k = actualChats.length - 1; k >= 0; k--) {
-        const chatMeta = actualChats[k];
-        console.log(`\n📥 [VK] (${actualChats.length - k}/${actualChats.length}) Открываем чат: ${chatMeta.name} (${chatMeta.dateStr})...`);
-
-        let chatLocator = chatItems.nth(chatMeta.index);
-        await chatLocator.scrollIntoViewIfNeeded().catch(() => {});
-        await page.waitForTimeout(300);
-
-        // Кликаем по чату в списке (через DOM el.click())
-        await chatLocator.evaluate((el: HTMLElement) => el.click());
-        await page.waitForTimeout(1200);
-
-        // Собираем сообщения из открытого чата
-        const filteredMessages = await extractMessagesFromOpenChat(page, chatMeta.name, chatMeta.dateStr);
-
-        if (filteredMessages.length > 0) {
-            console.log(`   ✅ [VK] Собрано сообщений: ${filteredMessages.length}`);
-            orders.push({
-                messenger: 'VK',
-                chatName: chatMeta.name,
-                messages: filteredMessages
-            });
-        } else {
-            console.log(`   ⚠️ [VK] Сообщений по фильтру времени не найдено`);
-        }
-
-        // 4. После того как сообщения взяты — закрываем чат по крестику
-        await closeActiveVkChat(page);
-    }
-
+    const orders = Array.from(uniqueOrders.values()).filter(o => o.messages.length > 0);
     console.log(`\n✅ [VK] Сбор завершен. Получено заказов: ${orders.length}\n`);
     return orders;
 }

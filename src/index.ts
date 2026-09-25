@@ -1,13 +1,17 @@
 import { chromium } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as dotenv from 'dotenv';
 import { parseWhatsApp } from './parsers/whatsapp';
 import { parseTelegram } from './parsers/telegram';
 import { parseVk } from './parsers/vk';
 import { OrderResult } from './types';
 
-const USER_DATA_DIR = 'C:\\Users\\emina\\.yandex-debug';
-const YANDEX_PATH = 'C:\\Program Files\\Yandex\\YandexBrowser\\Application\\browser.exe';
+// Загружаем переменные окружения из файла .env
+dotenv.config();
+
+const USER_DATA_DIR = process.env.USER_DATA_DIR || 'C:\\Users\\emina\\.yandex-debug';
+const YANDEX_PATH = process.env.YANDEX_PATH || 'C:\\Program Files\\Yandex\\YandexBrowser\\Application\\browser.exe';
 
 async function main() {
     console.log('🚀 Запуск Яндекс.Браузера...');
@@ -23,16 +27,16 @@ async function main() {
         const allOrders: OrderResult[] = [];
 
         // 1. Сбор заказов из WhatsApp
-        // const whatsappOrders = await parseWhatsApp(context);
-        // allOrders.push(...whatsappOrders);
+        const whatsappOrders = await parseWhatsApp(context);
+        allOrders.push(...whatsappOrders);
 
         // 2. Сбор заказов из Telegram
         const telegramOrders = await parseTelegram(context);
         allOrders.push(...telegramOrders);
 
         // 3. Сбор заказов из VKontakte
-        // const vkOrders = await parseVk(context);
-        // allOrders.push(...vkOrders);
+        const vkOrders = await parseVk(context);
+        allOrders.push(...vkOrders);
 
         console.log('\n===================================');
         console.log(`🎉 ВСЕГО СОБРАНО ЗАКАЗОВ: ${allOrders.length}`);
