@@ -1,0 +1,177 @@
+{
+  "vk": {
+    "filter_tab": "Заказы",
+    "chats": [
+      {
+        "name": "Ип Лялин : Горького 71 , Горького 100 заказы",
+        "enabled": true,
+        "shared_chat": true
+      },
+      {
+        "name": "Старый город овощи закупка",
+        "enabled": true,
+        "shared_chat": false
+      },
+      {
+        "name": "Эрфольг/кривченков заказы овощи",
+        "enabled": true,
+        "shared_chat": true,
+        "branches": [
+          {
+            "name": "Плаза",
+            "aliases": [
+              "плаза",
+              "плазу"
+            ]
+          },
+          {
+            "name": "Аркада",
+            "aliases": [
+              "аркада",
+              "аркаду"
+            ]
+          },
+          {
+            "name": "Маленькая сода",
+            "aliases": [
+              "маленькая сода",
+              "сода",
+              "соду",
+              "маленькую соду"
+            ]
+          },
+          {
+            "name": "Песто",
+            "aliases": [
+              "песто"
+            ]
+          },
+          {
+            "name": "Кондитерка",
+            "aliases": [
+              "кондитерка",
+              "кондитерку"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Пиццерия Куба Заказы",
+        "enabled": true,
+        "shared_chat": false,
+        "split_sub_orders": true,
+        "prefix_brand": true,
+        "branches": [
+          {
+            "name": "Юбилейная",
+            "aliases": [
+              "юбилейная",
+              "юбилейный",
+              "юбик",
+              "юбилейную"
+            ]
+          },
+          {
+            "name": "Первомайский",
+            "aliases": [
+              "первомайский",
+              "первомайскую",
+              "первомайка"
+            ]
+          },
+          {
+            "name": "Зубковой",
+            "aliases": [
+              "зубковой",
+              "зубкова"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Заказы Кавалли",
+        "enabled": true,
+        "shared_chat": false
+      },
+      {
+        "name": "Сушкоф заказы",
+        "enabled": true,
+        "shared_chat": true
+      },
+      {
+        "name": "Бон аппетит заказы",
+        "enabled": true,
+        "shared_chat": false
+      },
+      {
+        "name": "Овощи заказ на Мими",
+        "enabled": true,
+        "shared_chat": false
+      },
+      {
+        "name": "Заказы овощи TorroGrill",
+        "enabled": true,
+        "shared_chat": false
+      },
+      {
+        "name": "Ёлки закупка овощи/зелень",
+        "enabled": true,
+        "shared_chat": false
+      },
+      {
+        "name": "Семья",
+        "enabled": true,
+        "shared_chat": true,
+        "merge_same_spot": true
+      },
+      {
+        "name": "Овощи Хорошие руки/Зерно",
+        "enabled": true,
+        "shared_chat": true,
+        "merge_same_spot": true
+      }
+    ]
+  },
+  "whatsapp": {
+    "filter_tab": "Заказы",
+    "chats": [
+      {
+        "name": "Винбургер овощи/фрукты",
+        "enabled": true,
+        "shared_chat": false
+      },
+      {
+        "name": "Заказы ПУР-ПУР 🍅🍊🧀",
+        "enabled": true,
+        "shared_chat": true,
+        "merge_consecutive_by_author": true
+      }
+    ]
+  },
+  "telegram": {
+    "filter_tab": "Заказы",
+    "chats": [
+      {
+        "name": "ФОБО Новослободская овощи",
+        "enabled": true,
+        "shared_chat": false
+      },
+      {
+        "name": "Хинкдом заказы 5 база",
+        "enabled": true,
+        "is_forum": true
+      },
+      {
+        "name": "Овощи Скетч и Верде",
+        "enabled": true,
+        "shared_chat": true,
+        "merge_same_spot": false
+      },
+      {
+        "name": "ФОБО Плаза овощи",
+        "enabled": true,
+        "shared_chat": false
+      }
+    ]
+  }
+}
