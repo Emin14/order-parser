@@ -22,8 +22,15 @@ function cleanBrandName(rawName: string): string {
  * Удаляет приветствия из текста, чтобы они не попадали в заголовки.
  */
 function stripGreetings(text: string): string {
+    // 1. Убираем базовые приветствия
     const greetingsRegex = /(?:^|\n)\s*(здравствуйте|добры[йя]\s*[,]?[ \s]*(день|вечер|ночь|утро)|доброе\s+утро|доброй\s+ночи|приветствую|привет)[!,.\s:]*/gi;
-    return text.replace(greetingsRegex, '\n').trim();
+    let cleaned = text.replace(greetingsRegex, '\n');
+    
+    // 2. Убираем вводные фразы типа "примите заказ", "прошу принять заявку"
+    const orderIntroRegex = /(?:^|\n)\s*(?:прошу\s+принять\s+(?:заказ|заявку)|прими(?:те)?\s+(?:заказ|заявку|пожалуйста))[!,.\s:]*/gi;
+    cleaned = cleaned.replace(orderIntroRegex, '\n');
+    
+    return cleaned.trim();
 }
 
 /**
