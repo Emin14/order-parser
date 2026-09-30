@@ -285,10 +285,14 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
 
     // Наводим курсор на открытый чат
     const firstMsgLoc = page.locator('.ConvoMain [class*="ConvoMessage"], .ConvoHistory [class*="ConvoMessage"], [class*="ConvoMessage"], .MessageText').first();
-    await firstMsgLoc.hover({ timeout: 2000 }).catch(async () => {
-        const scrollBox = await getChatHistoryScrollBox(page);
-        if (scrollBox) await page.mouse.move(scrollBox.x, scrollBox.y);
-    });
+    try { 
+        const view = page.viewportSize(); 
+        if (view) await page.mouse.move(view.width / 2, view.height / 2); 
+        await page.evaluate(() => {
+            const scroller = document.querySelector('.ConvoHistory__scroll, .ConvoMain, .im-page--history, [class*="history"], [class*="Scroller"]');
+            if (scroller) scroller.scrollBy(0, -18000);
+        });
+    } catch (e) {}
 
     console.log(`   📜 [VK] Прокручиваем историю [${chatName}] вверх к началу смены...`);
 
@@ -376,6 +380,11 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
         // Скроллим вверх плавно, чтобы не перепрыгнуть виртуальные элементы
         await page.mouse.wheel(0, -400);
         await page.evaluate(() => {
+            const scroller = document.querySelector('.ConvoHistory__scroll, .ConvoMain, .im-page--history, [class*="history"], [class*="Scroller"]');
+            if (scroller) scroller.scrollBy(0, -400);
+            else window.scrollBy(0, -400);
+        });
+        await page.evaluate(() => {
             const msgs = document.querySelectorAll('[class*="ConvoMessage"], .MessageText');
             for (const msg of Array.from(msgs)) {
                 let cur = msg?.parentElement;
@@ -405,23 +414,13 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
 
     for (let step = 1; step <= 25; step++) {
         await page.mouse.wheel(0, 800);
-        await page.keyboard.press('PageDown').catch(() => {});
         await page.evaluate(() => {
-            const msgs = document.querySelectorAll('[class*="ConvoMessage"], .MessageText');
-            for (const msg of Array.from(msgs)) {
-                let cur = msg?.parentElement;
-                let found = false;
-                while (cur && cur !== document.body) {
-                    const s = window.getComputedStyle(cur);
-                    if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && cur.scrollHeight > cur.clientHeight) {
-                        cur.scrollTop += 800;
-                        cur.dispatchEvent(new Event('scroll', { bubbles: true }));
-                        found = true;
-                        break;
-                    }
-                    cur = cur.parentElement;
-                }
-                if (found) break;
+            const scroller = document.querySelector('.ConvoHistory__scroll, .ConvoMain, .im-page--history, [class*="history"], [class*="Scroller"]');
+            if (scroller) {
+                scroller.scrollBy(0, 800);
+                scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+            } else {
+                window.scrollBy(0, 800);
             }
         }).catch(() => {});
 
@@ -461,23 +460,57 @@ export async function parseVk(context: BrowserContext): Promise<OrderResult[]> {
     console.log('🔍 [VK] Ищем вкладку ВКонтакте...');
     await new Promise(r => setTimeout(r, 1000));
 
-    let page = context.pages().find(p => p.url().includes('vk.com') || p.url().includes('vk.me'));
+    async function activateTab(p: any) {
+        try {
+            const client = await context.newCDPSession(p);
+            const { targetInfo } = await client.send('Target.getTargetInfo');
+            await client.send('Target.activateTarget', { targetId: targetInfo.targetId });
+        } catch (e) {
+            p.bringToFront().catch(() => {});
+        }
+    }
+
+    let page = context.pages().find(p => p.url().includes('vk.com') || p.url().includes('vk.me') || p.url().includes('vk.ru'));
     if (page) {
-        await page.bringToFront();
-        if (!page.url().includes('/im') && !page.url().includes('web.vk.com')) {
-            await page.goto('https://vk.com/im', { waitUntil: 'domcontentloaded' });
+        await activateTab(page);
+        if (!page.url().includes('/im') && !page.url().includes('web.vk.')) {
+            await page.goto('https://vk.ru/im', { waitUntil: 'domcontentloaded' });
         }
     } else {
         page = await context.newPage();
-        await page.goto('https://vk.com/im', { waitUntil: 'domcontentloaded' });
-        await page.bringToFront();
+        await page.goto('https://vk.ru/im', { waitUntil: 'domcontentloaded' });
+        await activateTab(page);
     }
 
     console.log('⚙️ [VK] Переключаемся на папку "Заказы"...');
     const ordersTab = page.locator('.OrganiserViewHorizontal__item, [data-testid^="me_folder_tab_"]').filter({ hasText: 'Заказы' });
     await ordersTab.waitFor({ state: 'visible', timeout: 15000 });
-    await ordersTab.click();
-    await page.waitForTimeout(2000);
+
+    // Кликаем и проверяем что вкладка действительно стала активной (до 3 попыток)
+    let tabActive = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+        await ordersTab.click();
+        await page.waitForTimeout(2000);
+
+        // Проверяем: вкладка стала активной если у неё есть класс selected/active или aria-selected="true"
+        tabActive = await ordersTab.evaluate((el: HTMLElement) => {
+            return el.getAttribute('aria-selected') === 'true'
+                || el.classList.contains('OrganiserViewHorizontal__item--selected')
+                || el.classList.contains('active')
+                || el.classList.toString().toLowerCase().includes('select');
+        }).catch(() => false);
+
+        if (tabActive) {
+            console.log(`✅ [VK] Папка "Заказы" активна (попытка ${attempt + 1})`);
+            break;
+        }
+        console.log(`⚠️ [VK] Вкладка "Заказы" не активна, повторяем... (попытка ${attempt + 1})`);
+        await page.waitForTimeout(1000);
+    }
+
+    if (!tabActive) {
+        console.warn('⚠️ [VK] Не удалось убедиться что вкладка "Заказы" активна — продолжаем на свой риск');
+    }
 
     // Если был открыт какой-то чат — закрываем его
     await closeActiveVkChat(page);
