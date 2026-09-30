@@ -23,12 +23,18 @@ function cleanBrandName(rawName: string): string {
  */
 function stripGreetings(text: string): string {
     // 1. Убираем базовые приветствия
-    const greetingsRegex = /(?:^|\n)\s*(здравствуйте|добры[йя]\s*[,]?[ \s]*(день|вечер|ночь|утро)|доброе\s+утро|доброй\s+ночи|приветствую|привет)[!,.\s:]*/gi;
+    const greetingsRegex = /(?:^|\n|\s)*(здравствуйте|добры[йя]\s*[,]?[ \s]*(день|вечер|ночь|утро)|доброе\s*(утро)?|доброй\s*(ночи)?|приветствую|привет)[!,.\s:]*/gi;
     let cleaned = text.replace(greetingsRegex, '\n');
     
-    // 2. Убираем вводные фразы типа "примите заказ", "прошу принять заявку"
-    const orderIntroRegex = /(?:^|\n)\s*(?:прошу\s+принять\s+(?:заказ|заявку)|прими(?:те)?\s+(?:заказ|заявку|пожалуйста))[!,.\s:]*/gi;
-    cleaned = cleaned.replace(orderIntroRegex, '\n');
+    // 2. Убираем вводные фразы типа "примите заказ", "прошу принять заявку", "пожалуйста", "на сегодня"
+    const orderIntroRegex = /(?:^|\n|\s)*(?:прошу\s+принять\s+(?:заказ|заявку)|прими(?:те)?\s+(?:заказ|заявку)|пожалуйста|на\s+сегодня)[!,.\s:]*/gi;
+    
+    // Прогоняем несколько раз, чтобы удалить цепочки (например, "примите заказ пожалуйста на сегодня")
+    let prev = '';
+    while (cleaned !== prev) {
+        prev = cleaned;
+        cleaned = cleaned.replace(orderIntroRegex, '\n');
+    }
     
     return cleaned.trim();
 }
