@@ -17,8 +17,23 @@ const YANDEX_PATH = process.env.YANDEX_PATH || 'C:\\Program Files\\Yandex\\Yande
 // Установите USE_MOCK_DATA = true, чтобы использовать готовый mock_orders.json без запуска браузера
 const USE_MOCK_DATA = false;
 
+// ДОБОР ЗАКАЗОВ: укажите время в формате "HH:MM" чтобы собрать только с этого момента.
+// Оставьте пустую строку '' для обычного полного сбора.
+// Пример: const FROM_TIME = '23:01';  // собрать с 23:01 вчера/сегодня до сейчас
+const FROM_TIME = '';
+
 async function main() {
     try {
+        // Аргумент --from HH:MM из командной строки перекрывает FROM_TIME
+        // Пример: node index.js --from 23:01
+        const fromArgIndex = process.argv.indexOf('--from');
+        const fromTime: string | undefined =
+            fromArgIndex !== -1 ? process.argv[fromArgIndex + 1]
+            : FROM_TIME || undefined;
+        if (fromTime) {
+            console.log(`⏱️ Режим ДОБОРА: собираем заказы с ${fromTime} до сейчас`);
+        }
+
         const allOrders: OrderResult[] = [];
 
         if (USE_MOCK_DATA) {
@@ -96,7 +111,7 @@ async function main() {
         const wordOutputPath = path.join(process.cwd(), `Заказ на ${dateStr}.docx`);
         
         const { exportToWord } = await import('./utils/word_exporter');
-        await exportToWord(allOrders, wordOutputPath);
+        await exportToWord(allOrders, wordOutputPath, fromTime);
 
         console.log('⏳ Ожидание 5 минут перед завершением...');
         await new Promise(r => setTimeout(r, 300000));

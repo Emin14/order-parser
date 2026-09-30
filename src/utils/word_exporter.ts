@@ -28,14 +28,29 @@ function stripGreetings(text: string): string {
  * Проверка: является ли строка перечислением товара
  * Если первая строка начинается с цифр и кг/г/шт, это товар, а не название точки.
  */
-export async function exportToWord(orders: OrderResult[], outputPath: string) {
+export async function exportToWord(orders: OrderResult[], outputPath: string, fromTime?: string) {
     const configPath = path.resolve(process.cwd(), 'cafes_config.json');
     if (!fs.existsSync(configPath)) {
         console.error('Конфиг cafes_config.json не найден!');
         return;
     }
-    
+
     const configData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+    // --- Фильтр «добора»: оставляем только сообщения после fromTime ---
+    // Поддерживает пересечение полуночи: если fromTime="23:01" и сейчас 07:00,
+    // оставляем сообщения с time >= "23:01" ИЛИ time <= "07:00"
+    function isAfterFrom(msgTime: string | undefined): boolean {
+        if (!fromTime) return true;  // режим не задан — берём все
+        if (!msgTime) return true;   // нет времени — не отсекаем
+        const now = new Date();
+        const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        const crossesMidnight = fromTime > currentTime;
+        if (crossesMidnight) {
+            return msgTime >= fromTime || msgTime <= currentTime;
+        }
+        return msgTime >= fromTime;
+    }
 
     interface VirtualOrder {
         header: string;
@@ -60,7 +75,10 @@ export async function exportToWord(orders: OrderResult[], outputPath: string) {
 
         if (chatConfig.enabled === false) continue;
 
-        let messages = [...orderBlock.messages];
+        // Применяем фильтр добора — отсекаем сообщения вне диапазона
+        let messages = [...orderBlock.messages].filter(m => isAfterFrom(m.time));
+        if (messages.length === 0) continue;
+
         const cleanChatName = chatConfig.display_name || cleanBrandName(chatConfig.name);
 
         // Восстанавливаем точку по цитируемому сообщению (replyTo)
