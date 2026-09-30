@@ -64,8 +64,8 @@ function stripTomorrowPhrase(text: string, time: string | undefined): string {
         const m = targetDate.getMonth() + 1;
         const mStr = String(m).padStart(2, '0');
 
-        // Генерируем паттерн для даты (например: 1.10 или 01.10)
-        const datePattern = `(?:${d}|${dStr})\\.(?:${m}|${mStr})`;
+        // Генерируем паттерн для даты (например: 1.10, 01.10, 1.10.24, 01.10.2024)
+        const datePattern = `(?:${d}|${dStr})\\.(?:${m}|${mStr})(?:\\.(?:\\d{2}|\\d{4}))?`;
 
         // Убираем вариации "на завтра", "на 1.10", "заказ на завтра", "заказ на 1.10" и т.д.
         const regexPattern = `(?:(?:заказ(?:ы)?|заявка|закупка)\\s+)?на\\s+(?:завтра(?:\\s+${datePattern})?|${datePattern})\\s*[:.,-]?`;
