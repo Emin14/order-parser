@@ -62,7 +62,7 @@ function stripTomorrowPhrase(text: string, time: string | undefined): string {
         const datePattern = `(?:${d}|${dStr})\\.(?:${m}|${mStr})`;
 
         // Убираем вариации "на завтра", "на 1.10", "заказ на завтра", "заказ на 1.10" и т.д.
-        const regexPattern = `(?:заказ(?:ы)?\\s+|заявка\\s+)?на\\s+(?:завтра(?:\\s+${datePattern})?|${datePattern})\\s*[:.,-]?`;
+        const regexPattern = `(?:(?:заказ(?:ы)?|заявка|закупка)\\s+)?на\\s+(?:завтра(?:\\s+${datePattern})?|${datePattern})\\s*[:.,-]?`;
         const regex = new RegExp(regexPattern, 'gi');
 
         return text.replace(regex, '').trim();
