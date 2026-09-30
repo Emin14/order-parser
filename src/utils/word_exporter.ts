@@ -43,13 +43,23 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
     function isAfterFrom(msgTime: string | undefined): boolean {
         if (!fromTime) return true;  // режим не задан — берём все
         if (!msgTime) return true;   // нет времени — не отсекаем
-        const now = new Date();
-        const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        const crossesMidnight = fromTime > currentTime;
-        if (crossesMidnight) {
-            return msgTime >= fromTime || msgTime <= currentTime;
+
+        // Переводим время HH:MM в "абсолютные минуты от начала смены (11:00)"
+        // Так как парсер собирает заказы максимум со вчерашних 11:00 до сегодняшнего вечера,
+        // всё что ДО 11:00 (утро) относится к следующему дню относительно 11:00.
+        function getAbsoluteMinutes(t: string): number {
+            const [h, m] = t.split(':').map(Number);
+            let total = h * 60 + m;
+            if (h < 11) {
+                total += 24 * 60; // переносим на "следующий день" для правильного сравнения
+            }
+            return total;
         }
-        return msgTime >= fromTime;
+
+        const msgAbsolute = getAbsoluteMinutes(msgTime);
+        const fromAbsolute = getAbsoluteMinutes(fromTime);
+
+        return msgAbsolute >= fromAbsolute;
     }
 
     interface VirtualOrder {
