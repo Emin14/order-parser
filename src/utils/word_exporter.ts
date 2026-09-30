@@ -38,20 +38,24 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
     const configData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
     // --- Фильтр «добора»: оставляем только сообщения после fromTime ---
-    // Поддерживает пересечение полуночи: если fromTime="23:01" и сейчас 07:00,
-    // оставляем сообщения с time >= "23:01" ИЛИ time <= "07:00"
     function isAfterFrom(msgTime: string | undefined): boolean {
         if (!fromTime) return true;  // режим не задан — берём все
         if (!msgTime) return true;   // нет времени — не отсекаем
 
-        // Переводим время HH:MM в "абсолютные минуты от начала смены (11:00)"
-        // Так как парсер собирает заказы максимум со вчерашних 11:00 до сегодняшнего вечера,
-        // всё что ДО 11:00 (утро) относится к следующему дню относительно 11:00.
+        const now = new Date();
+        const currentTotal = now.getHours() * 60 + now.getMinutes();
+
+        // Переводим время HH:MM в "абсолютные минуты" относительно ТЕКУЩЕГО времени.
+        // Поскольку парсер собирает заказы за последние ~24 часа:
+        // Если время сообщения БОЛЬШЕ текущего (например, сейчас 12:15, а сообщение 20:29),
+        // значит это сообщение было ВЧЕРА. Мы вычитаем 24 часа.
         function getAbsoluteMinutes(t: string): number {
             const [h, m] = t.split(':').map(Number);
             let total = h * 60 + m;
-            if (h < 11) {
-                total += 24 * 60; // переносим на "следующий день" для правильного сравнения
+            
+            // Если время больше текущего — это 100% вчерашний день
+            if (total > currentTotal) {
+                total -= 24 * 60; 
             }
             return total;
         }
