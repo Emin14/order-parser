@@ -20,7 +20,7 @@ function cleanBrandName(rawName: string): string {
  * Удаляет приветствия из текста, чтобы они не попадали в заголовки.
  */
 function stripGreetings(text: string): string {
-    const greetingsRegex = /(?:^|\n)\s*(здравствуйте|добры[йя]\s*[,]?[ \s]*(день|вечер|ночь|утро)|доброе\s+утро|доброй\s+ночи|приветствую|привет)[!,.\s]*/gi;
+    const greetingsRegex = /(?:^|\n)\s*(здравствуйте|добры[йя]\s*[,]?[ \s]*(день|вечер|ночь|утро)|доброе\s+утро|доброй\s+ночи|приветствую|привет)[!,.\s:]*/gi;
     return text.replace(greetingsRegex, '\n').trim();
 }
 
