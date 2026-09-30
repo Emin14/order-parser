@@ -359,6 +359,16 @@ export async function parseTelegram(context: BrowserContext): Promise<OrderResul
                                 console.log(`   📥 Заходим в тему [${topicTitle}]...`);
                                 await topic.click();
                                 
+                                // Ждём перерисовки интерфейса (чтобы не прочитать старую тему)
+                                try {
+                                    await page.waitForFunction((title) => {
+                                        const header = document.querySelector('.chat-info, .header, #column-center');
+                                        return header && header.textContent && header.textContent.includes(title);
+                                    }, topicTitle, { timeout: 4000 });
+                                } catch (e) {
+                                    await page.waitForTimeout(2000); // фоллбэк
+                                }
+                                
                                 const order = await extractActiveChatMessages(page, fullChatName, checkTopic.dateStr);
                                 if (order) {
                                     uniqueOrders.set(fullChatName, order);
