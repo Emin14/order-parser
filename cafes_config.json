@@ -5,12 +5,31 @@
       {
         "name": "Ип Лялин : Горького 71 , Горького 100 заказы",
         "enabled": true,
-        "shared_chat": true
+        "split_sub_orders": true,
+        "branches": [
+          {
+            "name": "ИП Лялин Горького 100",
+            "aliases": [
+              "горького 100",
+              "100"
+            ]
+          },
+          {
+            "name": "ИП Лялин Горького 71",
+            "aliases": [
+              "горького 71",
+              "71"
+            ]
+          }
+        ],
+        "prefix_brand": true,
+        "display_name": "ИП Лялин"
       },
       {
         "name": "Старый город овощи закупка",
         "enabled": true,
-        "shared_chat": false
+        "shared_chat": false,
+        "merge_by_sender": true
       },
       {
         "name": "Эрфольг/кривченков заказы овощи",
@@ -53,7 +72,8 @@
               "кондитерку"
             ]
           }
-        ]
+        ],
+        "use_branch_name": true
       },
       {
         "name": "Пиццерия Куба Заказы",
@@ -122,13 +142,102 @@
         "name": "Семья",
         "enabled": true,
         "shared_chat": true,
-        "merge_same_spot": true
+        "merge_same_spot": false,
+        "branches": [
+          {
+            "name": "Ип трубицина",
+            "aliases": [
+              "ип трубицина",
+              "трубицина"
+            ]
+          }
+        ]
       },
       {
         "name": "Овощи Хорошие руки/Зерно",
         "enabled": true,
         "shared_chat": true,
-        "merge_same_spot": true
+        "merge_same_spot": true,
+        "branches": [
+          {
+            "name": "Вилла бирра",
+            "aliases": [
+              "вилла бирра",
+              "вила бира"
+            ]
+          },
+          {
+            "name": "Зерно плаза",
+            "aliases": [
+              "зерно плаза",
+              "zerno plaza"
+            ]
+          },
+          {
+            "name": "Соборная",
+            "aliases": [
+              "соборная"
+            ]
+          },
+          {
+            "name": "Окское",
+            "aliases": [
+              "окское"
+            ]
+          },
+          {
+            "name": "Горького",
+            "aliases": [
+              "горького"
+            ]
+          },
+          {
+            "name": "Татарская",
+            "aliases": [
+              "татарская"
+            ]
+          },
+          {
+            "name": "Семинарская",
+            "aliases": [
+              "семинарская"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Мангал заказы",
+        "enabled": true,
+        "split_sub_orders": true,
+        "branches": [
+          {
+            "name": "Мангал Горького",
+            "aliases": [
+              "горького"
+            ]
+          },
+          {
+            "name": "Мангал Солотча",
+            "aliases": [
+              "солотча",
+              "почтовая",
+              "солотчу",
+              "почтовую"
+            ]
+          },
+          {
+            "name": "Мангал Лесной Бункер",
+            "aliases": [
+              "бункер",
+              "монастырская",
+              "монастырьская",
+              "монастырскую",
+              "монастырьскую",
+              "лесной бункер"
+            ]
+          }
+        ],
+        "prefix_brand": true
       }
     ]
   },
@@ -138,13 +247,38 @@
       {
         "name": "Винбургер овощи/фрукты",
         "enabled": true,
-        "shared_chat": false
+        "shared_chat": false,
+        "merge_same_spot": false
       },
       {
         "name": "Заказы ПУР-ПУР 🍅🍊🧀",
         "enabled": true,
-        "shared_chat": true,
-        "merge_consecutive_by_author": true
+        "shared_chat": true
+      },
+      {
+        "name": "Вкус мяса заказы ( Плаза и Кольцова)",
+        "enabled": true,
+        "split_sub_orders": true,
+        "branches": [
+          {
+            "name": "Вкус мяса Плаза",
+            "aliases": [
+              "плаза",
+              "плазу",
+              "плазе"
+            ]
+          },
+          {
+            "name": "Вкус мяса Краснорядская",
+            "aliases": [
+              "краснорядская",
+              "краснорядскую",
+              "краснорядской",
+              "кольцова"
+            ]
+          }
+        ],
+        "prefix_brand": true
       }
     ]
   },
@@ -171,6 +305,17 @@
         "name": "ФОБО Плаза овощи",
         "enabled": true,
         "shared_chat": false
+      },
+      {
+        "name": "Овощи ИП Шерстнев ЮВ, ООО Финк",
+        "enabled": true,
+        "shared_chat": true
+      },
+      {
+        "name": "Работа !!!!!!!!!",
+        "enabled": true,
+        "shared_chat": true,
+        "merge_same_spot": false
       }
     ]
   }

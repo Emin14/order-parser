@@ -72,6 +72,7 @@ export function parseVkDate(dateRaw: string): CheckOrderResult {
     const text = (dateRaw || '').trim().toLowerCase();
     const now = new Date();
     const { mode } = getShiftMode(now);
+    const dayOfWeek = now.getDay(); // 0 = вс, 1 = пн
 
     // 0. "11:38" (сегодняшнее время)
     if (/^\d{1,2}:\d{2}$/.test(text)) {
@@ -112,10 +113,37 @@ export function parseVkDate(dateRaw: string): CheckOrderResult {
         const timeStr = timeMatch ? timeMatch[0] : '';
         
         if (mode === 'EVENING_NIGHT' && now.getHours() >= 18) {
+            // Вечерний сбор
+            // В воскресенье мы собираем субботу с 11:00!
+            if (dayOfWeek === 0) {
+                if (timeMatch) {
+                    const h = parseInt(timeMatch[1], 10);
+                    if (h >= 13) {
+                        return { isActual: true, dateStr: text, reason: `Вчера (суббота) с 11:00` };
+                    }
+                }
+            }
             return { isActual: false, dateStr: text, reason: "Вчерашний чат (вечерний сбор только за сегодня)" };
         } else {
+            // Дневной сбор
             if (timeMatch) {
                 const h = parseInt(timeMatch[1], 10);
+                
+                // Если сегодня понедельник, то вчера (воскресенье) мы берем ЦЕЛИКОМ (h >= 0).
+                if (dayOfWeek === 1) {
+                    return { isActual: true, dateStr: text, reason: `Вчера в ${timeStr} (воскресенье)` };
+                }
+                
+                // Если сегодня воскресенье, то вчера (суббота) берем с 11:00
+                if (dayOfWeek === 0) {
+                    if (h >= 13) {
+                        return { isActual: true, dateStr: text, reason: `Вчера (суббота) с 11:00` };
+                    } else {
+                        return { isActual: false, dateStr: text, reason: `Вчера до 11:00 (${timeStr})` };
+                    }
+                }
+                
+                // Обычный день: вчера берем с 06:00
                 if (h >= 6) {
                     return { isActual: true, dateStr: text, reason: `Вчера в ${timeStr} (входит в рабочий интервал)` };
                 } else {
@@ -128,8 +156,30 @@ export function parseVkDate(dateRaw: string): CheckOrderResult {
 
     // 5. Конкретная дата (например "21 сентября в 21:53")
     const category = getBannerDateCategory(text);
-    if (category === 'today' || (category === 'yesterday' && (mode === 'DAY' || now.getHours() < 6))) {
-        return { isActual: true, dateStr: text, reason: `Календарная дата (${text})` };
+    if (category === 'today') {
+        return { isActual: true, dateStr: text, reason: `Календарная дата (сегодня)` };
+    }
+    if (category === 'yesterday') {
+        // Если дневной сбор или ночной сбор (до 06:00)
+        if (mode === 'DAY' || now.getHours() < 6) {
+            return { isActual: true, dateStr: text, reason: `Календарная дата (вчера)` };
+        }
+        // В воскресенье берем субботу (вчера) с 11:00!
+        if (dayOfWeek === 0) {
+            const timeMatch = text.match(/(\d{1,2}):(\d{2})/);
+            if (timeMatch && parseInt(timeMatch[1], 10) >= 11) {
+                 return { isActual: true, dateStr: text, reason: `Календарная дата (суббота с 11:00)` };
+            }
+        }
+    }
+    if (category === 'dayBeforeYesterday') {
+        // Если сегодня понедельник (до 18:00), то позавчера (суббота) берется с 11:00
+        if (dayOfWeek === 1 && mode === 'DAY') {
+            const timeMatch = text.match(/(\d{1,2}):(\d{2})/);
+            if (timeMatch && parseInt(timeMatch[1], 10) >= 11) {
+                 return { isActual: true, dateStr: text, reason: `Календарная дата (позавчера суббота с 11:00)` };
+            }
+        }
     }
 
     return { isActual: false, dateStr: text, reason: `Старая дата (${text})` };
@@ -198,9 +248,15 @@ export function checkOrderDate(chatText: string): CheckOrderResult {
         }
     }
 
+    const dayOfWeek = now.getDay();
+
     // 2. Вчера / Yesterday (WhatsApp)
     if (dl === 'вчера' || dl === 'yesterday') {
         if (mode === 'EVENING_NIGHT' && now.getHours() >= 18) {
+            // В воскресенье мы разрешаем субботу (вчера) всегда
+            if (dayOfWeek === 0) {
+                return { isActual: true, dateStr, reason: "Вчерашний чат (суббота, воскресный сбор)" };
+            }
             return { isActual: false, dateStr, reason: "Вчерашний чат (вечерний сбор только за сегодня)" };
         } else {
             return { isActual: true, dateStr, reason: "Вчерашний чат (входит в рабочий интервал)" };
@@ -211,11 +267,19 @@ export function checkOrderDate(chatText: string): CheckOrderResult {
     const isDayOfWeek = /^(mon|tue|wed|thu|fri|sat|sun|пн|вт|ср|чт|пт|сб|вс)/i.test(dl);
     if (isDayOfWeek) {
         const matchesYesterday = dl.startsWith(yDayEn) || dl.startsWith(yDayRu);
-        if (matchesYesterday) {
+        
+        // В понедельник дневной сбор: разрешаем и субботу (позавчера)
+        const isMondayAndSaturday = dayOfWeek === 1 && mode === 'DAY' && (dl.startsWith('sat') || dl.startsWith('сб') || dl.startsWith('суббота'));
+
+        if (matchesYesterday || isMondayAndSaturday) {
             if (mode === 'EVENING_NIGHT' && now.getHours() >= 18) {
+                // В воскресенье (вечер) разрешаем вчера (субботу)
+                if (dayOfWeek === 0) {
+                    return { isActual: true, dateStr, reason: `Вчерашний день (${dateStr}), воскресный сбор` };
+                }
                 return { isActual: false, dateStr, reason: `Вчерашний день (${dateStr}), вечерний сбор только за сегодня` };
             } else {
-                return { isActual: true, dateStr, reason: `Вчерашний день (${dateStr}), входит в интервал` };
+                return { isActual: true, dateStr, reason: `Вчерашний или позавчерашний день (${dateStr}), входит в интервал` };
             }
         } else {
             return { isActual: false, dateStr, reason: `Старый день недели (${dateStr})` };
@@ -227,9 +291,9 @@ export function checkOrderDate(chatText: string): CheckOrderResult {
 }
 
 /**
- * Определение категории плашки даты (Today / Yesterday / Older)
+ * Определение категории плашки даты (Today / Yesterday / DayBeforeYesterday / Older)
  */
-export function getBannerDateCategory(bannerText: string): 'today' | 'yesterday' | 'older' {
+export function getBannerDateCategory(bannerText: string): 'today' | 'yesterday' | 'dayBeforeYesterday' | 'older' {
     const clean = (bannerText || '').trim().toLowerCase();
     if (!clean) return 'today';
 
@@ -243,6 +307,8 @@ export function getBannerDateCategory(bannerText: string): 'today' | 'yesterday'
     const now = new Date();
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
+    const dayBeforeYesterday = new Date(now);
+    dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 2);
 
     const matchesCalendarDate = (targetDate: Date) => {
         const day = targetDate.getDate();
@@ -262,6 +328,7 @@ export function getBannerDateCategory(bannerText: string): 'today' | 'yesterday'
 
     if (matchesCalendarDate(now)) return 'today';
     if (matchesCalendarDate(yesterday)) return 'yesterday';
+    if (matchesCalendarDate(dayBeforeYesterday)) return 'dayBeforeYesterday';
 
     const isDayOfWeek = /^(mon|tue|wed|thu|fri|sat|sun|пн|вт|ср|чт|пт|сб|вс|понедельник|вторник|среда|четверг|пятница|суббота|воскресенье)/i.test(clean);
     if (isDayOfWeek) {
@@ -274,6 +341,7 @@ export function getBannerDateCategory(bannerText: string): 'today' | 'yesterday'
         
         if (matchesDay(now)) return 'today';
         if (matchesDay(yesterday)) return 'yesterday';
+        if (matchesDay(dayBeforeYesterday)) return 'dayBeforeYesterday';
     }
 
     return 'older';
@@ -283,7 +351,7 @@ export function getBannerDateCategory(bannerText: string): 'today' | 'yesterday'
  * Проверка актуальности отдельного сообщения с учетом правил смены
  */
 export function isMessageActual(
-    category: 'today' | 'yesterday' | 'older', 
+    category: 'today' | 'yesterday' | 'dayBeforeYesterday' | 'older', 
     timeStr: string, 
     messageText: string = ''
 ): boolean {
@@ -291,6 +359,7 @@ export function isMessageActual(
 
     const now = new Date();
     const { mode } = getShiftMode(now);
+    const dayOfWeek = now.getDay(); // 0 = вс, 1 = пн
 
     let h = 0;
     let m = 0;
@@ -302,50 +371,48 @@ export function isMessageActual(
         }
     }
 
+    // Вспомогательная функция для проверки времени (новое правило: >= 11:00 берем все, 09:00-10:59 с пометкой)
+    const checkTargetTime = (hour: number, text: string, refDate: Date) => {
+        if (hour >= 11) return true;
+        if (hour >= 9 && hour < 11) {
+            const hasAnyDay = /(?:^|[^а-яa-z0-9])на\s+(пн|понедельник|вт|вторник|ср|среду|чт|четверг|пт|пятницу|сб|субботу|вс|воскресенье|воскресенья)(?:[^а-яa-z0-9]|$)/i.test(text);
+            return isForTomorrow(text, refDate) || hasAnyDay;
+        }
+        return false;
+    };
+
     // ==========================================
     // РЕЖИМ 1: ВЕЧЕРНЕ-НОЧНОЙ СБОР (18:00 - 06:00)
     // ==========================================
     if (mode === 'EVENING_NIGHT') {
         if (now.getHours() >= 18) {
-            if (category !== 'today') return false;
-
-            // 10:00 - 23:59: берем все
-            if (h >= 10) return true;
-
-            // 06:00 - 10:00: только с пометкой "на завтра"
-            if (h >= 6 && h < 10) {
-                return isForTomorrow(messageText, now);
+            // Обычный вечерний сбор забирает ТОЛЬКО сегодня
+            if (category === 'today') {
+                if (dayOfWeek === 0) return true;
+                return checkTargetTime(h, messageText, now);
             }
-
+            // В Воскресенье вечером разрешаем собирать еще и субботу (вчера)
+            if (category === 'yesterday' && dayOfWeek === 0) {
+                const yesterday = new Date(now);
+                yesterday.setDate(yesterday.getDate() - 1);
+                return checkTargetTime(h, messageText, yesterday);
+            }
             return false;
         } else {
             // Ночь (00:00 - 05:59): смена продолжается от вчера
             if (category === 'today') {
-                // Если время >= 6, это физически не может быть сегодня (так как сейчас до 06:00).
-                // Значит, это вчерашнее сообщение, но баннер не считался (из-за виртуализации Telegram).
-                if (h >= 6) {
-                    if (h >= 10) return true;
-                    if (h >= 6 && h < 10) {
-                        const yesterday = new Date(now);
-                        yesterday.setDate(yesterday.getDate() - 1);
-                        return isForTomorrow(messageText, yesterday);
-                    }
+                if (h >= 12) {
+                    const yesterday = new Date(now);
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    return checkTargetTime(h, messageText, yesterday);
                 }
                 return h < 6;
             }
 
             if (category === 'yesterday') {
-                // Вчера с 10:00 до 23:59: берем все
-                if (h >= 10) return true;
-
-                // Вчера с 06:00 до 10:00: только с пометкой "на завтра"
-                if (h >= 6 && h < 10) {
-                    const yesterday = new Date(now);
-                    yesterday.setDate(yesterday.getDate() - 1);
-                    return isForTomorrow(messageText, yesterday);
-                }
-
-                return false;
+                const yesterday = new Date(now);
+                yesterday.setDate(yesterday.getDate() - 1);
+                return checkTargetTime(h, messageText, yesterday);
             }
 
             return false;
@@ -356,23 +423,38 @@ export function isMessageActual(
     // РЕЖИМ 2: ДНЕВНОЙ СБОР (06:00 - 18:00)
     // ==========================================
     if (mode === 'DAY') {
+        // ПОЗАВЧЕРА (dayBeforeYesterday)
+        // В понедельник мы собираем субботу (dayBeforeYesterday)
+        if (category === 'dayBeforeYesterday') {
+            if (dayOfWeek === 1) {
+                const dayBeforeYesterday = new Date(now);
+                dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 2);
+                return checkTargetTime(h, messageText, dayBeforeYesterday);
+            }
+            return false;
+        }
+
         // ВЧЕРА (yesterday):
         if (category === 'yesterday') {
-            // Вчера с 10:00 до 23:59: берем ВСЕ
-            if (h >= 10) return true;
-
-            // ВЧЕРА с 06:00 до 10:00: берем ТОЛЬКО с пометкой "на завтра" (на сегодня!)
-            if (h >= 6 && h < 10) {
-                const yesterday = new Date(now);
-                yesterday.setDate(yesterday.getDate() - 1);
-                return isForTomorrow(messageText, yesterday);
+            // Если сегодня понедельник, то вчера - это воскресенье. Забираем ВСЁ за воскресенье!
+            if (dayOfWeek === 1) {
+                return true;
             }
-
-            return false;
+            
+            // В остальные дни работает новое правило 11:00/12:00
+            const yesterday = new Date(now);
+            yesterday.setDate(yesterday.getDate() - 1);
+            return checkTargetTime(h, messageText, yesterday);
         }
 
         // СЕГОДНЯ (today):
         if (category === 'today') {
+            // Если сегодня воскресенье, то мы собираем ВСЕ заказы за сегодня (с 00:00 до 23:59)
+            if (dayOfWeek === 0) {
+                return true;
+            }
+            
+            // Обычные дни:
             if (now.getHours() < 15) {
                 return true;
             } else {

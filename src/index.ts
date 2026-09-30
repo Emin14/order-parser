@@ -15,7 +15,7 @@ const YANDEX_PATH = process.env.YANDEX_PATH || 'C:\\Program Files\\Yandex\\Yande
 
 // ПЕРЕКЛЮЧАТЕЛЬ ДЛЯ ТЕСТИРОВАНИЯ WORD-ЭКСПОРТА:
 // Установите USE_MOCK_DATA = true, чтобы использовать готовый mock_orders.json без запуска браузера
-const USE_MOCK_DATA = true;
+const USE_MOCK_DATA = false;
 
 async function main() {
     try {
@@ -34,6 +34,24 @@ async function main() {
                 args: ['--test-type', '--disable-gpu', '--disable-gpu-shader-disk-cache'],
                 ignoreDefaultArgs: ['--enable-automation'] 
             });
+            
+            // Пробуждаем ВСЕ фоновые вкладки (Яндекс.Браузер усыпляет их, скрывая от скрипта)
+            try {
+                const pages = context.pages();
+                if (pages.length > 0) {
+                    const client = await context.newCDPSession(pages[0]);
+                    const { targetInfos } = await client.send('Target.getTargets');
+                    
+                    for (const target of targetInfos) {
+                        if (target.type === 'page') {
+                            await client.send('Target.activateTarget', { targetId: target.targetId }).catch(() => {});
+                        }
+                    }
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+            } catch (e) {
+                console.log('⚠️ Не удалось разбудить вкладки:', e.message);
+            }
             
             try {
                 // 1. Сбор заказов из WhatsApp
@@ -82,6 +100,8 @@ async function main() {
 
         console.log('⏳ Ожидание 5 минут перед завершением...');
         await new Promise(r => setTimeout(r, 300000));
+        
+        await context.close();
 
     } catch (error) {
         console.error('❌ Ошибка во время выполнения:', error);

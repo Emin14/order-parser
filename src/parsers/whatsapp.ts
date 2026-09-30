@@ -81,13 +81,25 @@ function processRawItems(items: any[]): any[] {
     return processed;
 }
 
-function filterActualMessages(items: any[]): MessageItem[] {
+function filterActualMessages(items: any[], chatDateFallback: string = ''): MessageItem[] {
     let validMessages: MessageItem[] = [];
-    let currentCategory: 'today' | 'yesterday' | 'older' = 'today';
+    
+    // Определяем начальную категорию по дате из списка чатов, если нет баннеров
+    let fallbackCategory: 'today' | 'yesterday' | 'dayBeforeYesterday' | 'older' = 'today';
+    if (chatDateFallback) {
+        const cat = getBannerDateCategory(chatDateFallback);
+        if (cat !== 'older') {
+            fallbackCategory = cat;
+        }
+    }
+    
+    let currentCategory = fallbackCategory;
 
     const hasBanners = items.some(item => item.type === 'banner');
     if (hasBanners) {
-        currentCategory = 'older'; 
+        // Если в чате есть хотя бы один баннер, значит мы точно знаем границу.
+        // Но первое сообщение ДО баннера может быть из fallbackCategory.
+        currentCategory = fallbackCategory; 
     }
 
     for (let item of items) {
@@ -118,13 +130,23 @@ function filterActualMessages(items: any[]): MessageItem[] {
 export async function parseWhatsApp(context: BrowserContext): Promise<OrderResult[]> {
     console.log('🔍 [WhatsApp] Ищем вкладку WhatsApp...');
     await new Promise(r => setTimeout(r, 2000));
+    async function activateTab(p: any) {
+        try {
+            const client = await context.newCDPSession(p);
+            const { targetInfo } = await client.send('Target.getTargetInfo');
+            await client.send('Target.activateTarget', { targetId: targetInfo.targetId });
+        } catch (e) {
+            p.bringToFront().catch(() => {});
+        }
+    }
+
     let page = context.pages().find(p => p.url().includes('whatsapp.com'));
     if (page) {
-        await page.bringToFront(); 
+        await activateTab(page);
     } else {
         page = await context.newPage();
         await page.goto('https://web.whatsapp.com/', { waitUntil: 'domcontentloaded' });
-        await page.bringToFront();
+        await activateTab(page);
     }
 
     console.log('⚙️ [WhatsApp] Применяем фильтр "Заказы"...');
@@ -311,7 +333,7 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
             });
             
             const structuredItems = processRawItems(rawElementsData);
-            const filteredMessages = filterActualMessages(structuredItems);
+            const filteredMessages = filterActualMessages(structuredItems, check.dateStr);
             
             if (filteredMessages.length > 0) {
                 orders.push({
