@@ -25,6 +25,26 @@ function stripGreetings(text: string): string {
 }
 
 /**
+ * Удаляет из текста фразу "на завтра" (и её вариации с двоеточием)
+ * если заказ написан после 15:00.
+ */
+function stripTomorrowPhrase(text: string, time: string | undefined): string {
+    if (!time) return text;
+    const [hStr] = time.split(':');
+    if (!hStr) return text;
+    const h = parseInt(hStr, 10);
+    
+    // Если заказ написан после 15:00 (т.е. 15:00 - 23:59)
+    if (h >= 15) {
+        // Убираем вариации "на завтра", "заказ на завтра", "заказы на завтра", "заявка на завтра"
+        // с возможным двоеточием или точкой в конце.
+        const regex = /(?:заказ(?:ы)?\s+|заявка\s+)?на\s+завтра\s*[:.,-]?/gi;
+        return text.replace(regex, '').trim();
+    }
+    return text;
+}
+
+/**
  * Проверка: является ли строка перечислением товара
  * Если первая строка начинается с цифр и кг/г/шт, это товар, а не название точки.
  */
@@ -136,6 +156,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
 
         for (const msg of messages) {
             msg.text = stripGreetings(msg.text);
+            msg.text = stripTomorrowPhrase(msg.text, msg.time);
             if (!msg.text) continue;
 
             let rawBlocks = [msg.text];
