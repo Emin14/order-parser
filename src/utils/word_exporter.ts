@@ -71,9 +71,18 @@ function stripTomorrowPhrase(text: string, time: string | undefined): string {
 }
 
 /**
- * Проверка: является ли строка перечислением товара
- * Если первая строка начинается с цифр и кг/г/шт, это товар, а не название точки.
+ * Проверка: является ли строка перечислением товара.
+ * Используется, чтобы случайно не сделать товар заголовком, если настоящий заголовок был удален фильтрами.
  */
+function isProductLine(line: string): boolean {
+    const clean = line.trim().toLowerCase();
+    // Ищем числа с явными единицами измерения товара (2кг, 15 шт, 0.5л, 10 гр, 2уп) где угодно в строке
+    if (/(?:\d+[,.]?\d*)\s*(кг|г|гр|шт|л|мл|уп|пачк[иа]|сетк[иа]|ведр[оа]|пучк[иа]|пучок|ящик|кор|короб|лоток)(?:[^а-яёa-z]|$)/i.test(clean)) {
+        return true;
+    }
+    return false;
+}
+
 export async function exportToWord(orders: OrderResult[], outputPath: string, fromTime?: string) {
     const configPath = path.resolve(process.cwd(), 'cafes_config.json');
     if (!fs.existsSync(configPath)) {
@@ -338,7 +347,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                             
                             if (i === 0) {
                                 const blacklist = ['адам', 'сегодняшнюю', 'завтрашнюю', 'спасибо', 'пожалуйста', 'ок', 'хорошо', 'да', 'нет', 'на завтра', 'добавьте', 'добавка', 'дозаказ', 'в плазу', 'ребят', 'ребята', 'девчат', 'девочки', 'коллеги', 'подскажите', 'вопрос', 'внимание'];
-                                if (!blacklist.includes(cleanForCheck)) {
+                                if (!blacklist.includes(cleanForCheck) && !isProductLine(line)) {
                                     let h = line;
                                     if (h.endsWith(':')) h = h.slice(0, -1).trim();
                                     headerParts.push(h);
