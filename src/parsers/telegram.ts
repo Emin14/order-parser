@@ -344,9 +344,11 @@ export async function parseTelegram(context: BrowserContext): Promise<OrderResul
                         if (!topicText) continue;
                         
                         const topicTitleEl = topic.locator('.peer-title-inner, .peer-title').first();
-                        const topicTitle = (await topicTitleEl.count()) > 0 
+                        let topicTitle = (await topicTitleEl.count()) > 0 
                             ? (await topicTitleEl.innerText()).trim() 
                             : topicText.split('\n')[0].trim();
+                        // Убираем артефакты-аватарки типа "П\nПремьер"
+                        topicTitle = topicTitle.replace(/^[А-ЯЁA-Z]\n/i, '');
 
                         const checkTopic = checkOrderDate(topicText);
                         console.log(`   ├─ Тема [${topicTitle}] | Дата: ${checkTopic.dateStr} | Статус: ${checkTopic.reason}`);

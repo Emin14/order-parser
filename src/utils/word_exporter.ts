@@ -9,6 +9,8 @@ import { OrderResult, MessageItem } from '../types';
  */
 function cleanBrandName(rawName: string): string {
     return rawName
+        // Удаляем артефакты Telegram (одиночная буква аватарки перед переносом строки, например "П\nПремьер" или "→ В\nВиктория")
+        .replace(/(?:^|→\s*)[А-ЯЁA-Z]\n/gi, (match) => match.includes('→') ? '→ ' : '')
         .replace(/заказы|заказ|закупка|овощи\/фрукты|овощи и фрукты|овощи|фрукты|5 база/gi, '')
         .replace(/🍅|🍊|🧀|🍓/g, '') // Убираем эмодзи
         .replace(/[\(\[\{].*?[\)\]\}]/g, '') // Убираем скобки
