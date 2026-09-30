@@ -38,9 +38,26 @@ function stripTomorrowPhrase(text: string, time: string | undefined): string {
     
     // Если заказ написан после 15:00 (т.е. 15:00 - 23:59)
     if (h >= 15) {
-        // Убираем вариации "на завтра", "заказ на завтра", "заказы на завтра", "заявка на завтра"
-        // с возможным двоеточием или точкой в конце.
-        const regex = /(?:заказ(?:ы)?\s+|заявка\s+)?на\s+завтра\s*[:.,-]?/gi;
+        // Определяем целевую дату заказа
+        const now = new Date();
+        const targetDate = new Date(now);
+        // Если скрипт работает днём/вечером (>= 12:00), собираем на следующий день
+        if (now.getHours() >= 12) {
+            targetDate.setDate(targetDate.getDate() + 1);
+        }
+
+        const d = targetDate.getDate();
+        const dStr = String(d).padStart(2, '0');
+        const m = targetDate.getMonth() + 1;
+        const mStr = String(m).padStart(2, '0');
+
+        // Генерируем паттерн для даты (например: 1.10 или 01.10)
+        const datePattern = `(?:${d}|${dStr})\\.(?:${m}|${mStr})`;
+
+        // Убираем вариации "на завтра", "на 1.10", "заказ на завтра", "заказ на 1.10" и т.д.
+        const regexPattern = `(?:заказ(?:ы)?\\s+|заявка\\s+)?на\\s+(?:завтра(?:\\s+${datePattern})?|${datePattern})\\s*[:.,-]?`;
+        const regex = new RegExp(regexPattern, 'gi');
+
         return text.replace(regex, '').trim();
     }
     return text;
