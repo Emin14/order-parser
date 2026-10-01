@@ -483,8 +483,20 @@ export async function parseVk(context: BrowserContext): Promise<OrderResult[]> {
     }
 
     console.log('⚙️ [VK] Переключаемся на папку "Заказы"...');
-    const ordersTab = page.locator('.OrganiserViewHorizontal__item, [data-testid^="me_folder_tab_"]').filter({ hasText: 'Заказы' });
-    await ordersTab.waitFor({ state: 'visible', timeout: 15000 });
+    // Обновленные селекторы: ищем вкладку более широко, так как ВК часто меняет классы
+    let ordersTab = page.locator('.OrganiserViewHorizontal__item, [data-testid^="me_folder_tab_"], .ConvoListFolders__item, [class*="Folder"], [class*="folder"]').filter({ hasText: /^Заказы$/ }).first();
+    
+    try {
+        await ordersTab.waitFor({ state: 'visible', timeout: 15000 });
+    } catch (e) {
+        console.error('❌ [VK] Не удалось найти папку "Заказы". Возможно, ВК обновил дизайн или папка скрыта.');
+        // Пробуем найти просто любой элемент с точным текстом "Заказы"
+        ordersTab = page.locator('text="Заказы"').first();
+        if (!(await ordersTab.isVisible({ timeout: 5000 }))) {
+            throw new Error("Не удалось найти папку 'Заказы' ни одним из селекторов. Проверьте интерфейс ВК.");
+        }
+        console.log('⚠️ [VK] Нашли папку через резервный поиск!');
+    }
 
     // Кликаем и проверяем что вкладка действительно стала активной (до 3 попыток)
     let tabActive = false;
