@@ -483,25 +483,20 @@ export async function parseVk(context: BrowserContext): Promise<OrderResult[]> {
     }
 
     console.log('⚙️ [VK] Переключаемся на папку "Заказы"...');
-    // Обновленные селекторы: ищем вкладку более широко, так как ВК часто меняет классы
-    let ordersTab = page.locator('.OrganiserViewHorizontal__item, [data-testid^="me_folder_tab_"], .ConvoListFolders__item, [class*="Folder"], [class*="folder"]').filter({ hasText: /^Заказы$/ }).first();
+    // Используем точные классы из присланного HTML
+    const ordersTab = page.locator('.OrganiserViewHorizontal__item, [data-testid^="me_folder_tab_"]').filter({ hasText: 'Заказы' }).first();
     
     try {
-        await ordersTab.waitFor({ state: 'visible', timeout: 15000 });
+        await ordersTab.waitFor({ state: 'attached', timeout: 15000 });
     } catch (e) {
-        console.error('❌ [VK] Не удалось найти папку "Заказы". Возможно, ВК обновил дизайн или папка скрыта.');
-        // Пробуем найти просто любой элемент с точным текстом "Заказы"
-        ordersTab = page.locator('text="Заказы"').first();
-        if (!(await ordersTab.isVisible({ timeout: 5000 }))) {
-            throw new Error("Не удалось найти папку 'Заказы' ни одним из селекторов. Проверьте интерфейс ВК.");
-        }
-        console.log('⚠️ [VK] Нашли папку через резервный поиск!');
+        console.error('❌ [VK] Не удалось дождаться появления папки "Заказы".');
+        throw e;
     }
 
     // Кликаем и проверяем что вкладка действительно стала активной (до 3 попыток)
     let tabActive = false;
     for (let attempt = 0; attempt < 3; attempt++) {
-        await ordersTab.click();
+        await ordersTab.click({ force: true });
         await page.waitForTimeout(2000);
 
         // Проверяем: вкладка стала активной если у неё есть класс selected/active или aria-selected="true"
