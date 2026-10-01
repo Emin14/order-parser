@@ -20,7 +20,7 @@ const USE_MOCK_DATA = false;
 // ДОБОР ЗАКАЗОВ: укажите время в формате "HH:MM" чтобы собрать только с этого момента.
 // Оставьте пустую строку '' для обычного полного сбора.
 // Пример: const FROM_TIME = '23:01';  // собрать с 23:01 вчера/сегодня до сейчас
-const FROM_TIME = '';
+const FROM_TIME = '00:20';
 
 async function main() {
     try {
@@ -108,7 +108,14 @@ async function main() {
         const year = targetDate.getFullYear();
         const dateStr = `${day}.${month}.${year}`;
         
-        const wordOutputPath = path.join(process.cwd(), `Заказ на ${dateStr}.docx`);
+        let fileName = `Заказ на ${dateStr}`;
+        if (fromTime) {
+            const timeSafe = fromTime.replace(/:/g, '.');
+            fileName += ` с ${timeSafe}`;
+        }
+        fileName += '.docx';
+        
+        const wordOutputPath = path.join(process.cwd(), fileName);
         
         const { exportToWord } = await import('./utils/word_exporter');
         await exportToWord(allOrders, wordOutputPath, fromTime);
