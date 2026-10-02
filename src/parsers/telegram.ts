@@ -72,16 +72,24 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
     for (let step = 1; step <= 40; step++) {
         const cur = await page.evaluate(() => {
             const container = document.querySelector('.bubbles, .messages-layout, #column-center') || document;
-            const elements = Array.from(container.querySelectorAll('.service-msg, .bubble-content'));
+            const bubbles = Array.from(container.querySelectorAll('.bubble'));
             const results: any[] = [];
 
-            for (const el of elements) {
-                if (el.classList.contains('service-msg')) {
-                    results.push({
-                        type: 'banner',
-                        text: (el as HTMLElement).innerText ? (el as HTMLElement).innerText.trim() : ''
-                    });
+            for (const bubble of bubbles) {
+                if (bubble.classList.contains('is-date')) {
+                    const svc = bubble.querySelector('.service-msg');
+                    if (svc) {
+                        results.push({
+                            type: 'banner',
+                            text: (svc as HTMLElement).innerText ? (svc as HTMLElement).innerText.trim() : ''
+                        });
+                    }
+                } else if (bubble.classList.contains('service')) {
+                    continue;
                 } else {
+                    const el = bubble.querySelector('.bubble-content');
+                    if (!el) continue;
+
                     const nameEl = el.querySelector('.name .peer-title, .colored-name .peer-title');
                     const msgEl = el.querySelector('.message');
                     
