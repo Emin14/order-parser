@@ -119,8 +119,7 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
                         clone.querySelector('.time')?.remove();
                         clone.querySelector('.reply, .bubble-reply, .reply-content, blockquote.blockquote')?.remove();
 
-                        // Восстанавливаем переносы строк из <br> тегов до извлечения текста
-                        Array.from(clone.querySelectorAll('br')).forEach(br => br.replaceWith('\n'));
+
 
                         // Если внутри есть <p> или <li> (RichMessage / InstantView / нумерованный список) —
                         // innerText на клонированном узле склеивает их без переносов.
@@ -139,7 +138,6 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
                         if (allTrans.length > 0) {
                             const clone = allTrans[allTrans.length - 1].cloneNode(true) as HTMLElement;
                             clone.querySelector('.reply, .bubble-reply, .reply-content, blockquote.blockquote')?.remove();
-                            Array.from(clone.querySelectorAll('br')).forEach(br => br.replaceWith('\n'));
                             const blockEls = Array.from(clone.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6'));
                             if (blockEls.length > 0) {
                                 text = blockEls

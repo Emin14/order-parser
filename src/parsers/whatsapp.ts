@@ -300,10 +300,8 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                                     quotedMsg.remove();
                                 }
                                 
-                                Array.from(clone.querySelectorAll('br')).forEach(br => br.replaceWith('\n'));
                                 const selectableTextEl = clone.querySelector('[data-testid="selectable-text"]');
                                 if (selectableTextEl) {
-                                    Array.from(selectableTextEl.querySelectorAll('br')).forEach(br => br.replaceWith('\n'));
                                     cleanText = (selectableTextEl as HTMLElement).innerText || selectableTextEl.textContent || '';
                                 } else {
                                     cleanText = clone.innerText || clone.textContent || '';
@@ -348,7 +346,6 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                                     quotedMsg.remove();
                                 }
                                 
-                                Array.from(clone.querySelectorAll('br')).forEach(br => br.replaceWith('\n'));
                                 cleanText = clone.innerText || clone.textContent || '';
                             }
 
