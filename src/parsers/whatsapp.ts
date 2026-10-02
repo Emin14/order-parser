@@ -280,9 +280,9 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                                 
                                 const selectableTextEl = clone.querySelector('[data-testid="selectable-text"]');
                                 if (selectableTextEl) {
-                                    cleanText = (selectableTextEl as HTMLElement).innerText || '';
+                                    cleanText = (selectableTextEl as HTMLElement).innerText || selectableTextEl.textContent || '';
                                 } else {
-                                    cleanText = clone.innerText || '';
+                                    cleanText = clone.innerText || clone.textContent || '';
                                 }
                             } else {
                                 const clone = el.cloneNode(true) as HTMLElement;
@@ -324,7 +324,7 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                                     quotedMsg.remove();
                                 }
                                 
-                                cleanText = clone.innerText || '';
+                                cleanText = clone.innerText || clone.textContent || '';
                             }
 
                             results.push({
@@ -388,6 +388,12 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
             } catch (e) {}
 
             const rawElementsData = allRawElements;
+
+            try {
+                require('fs').writeFileSync(`debug_wa_${chatName.replace(/[^a-zа-я0-9]/gi, '_')}.json`, JSON.stringify({ raw: rawElementsData }, null, 2));
+            } catch (err) {
+                console.error("Debug write failed", err);
+            }
 
             const structuredItems = processRawItems(rawElementsData);
             const filteredMessages = filterActualMessages(structuredItems, check.dateStr);
