@@ -218,131 +218,174 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                 await page.waitForTimeout(2000); // фоллбэк
             }
             
-            const rawElementsData = await page.evaluate(() => {
-                const main = document.querySelector('#main');
-                if (!main) return [];
-                
-                const elements = Array.from(main.querySelectorAll('[role="row"], span[dir="auto"]'));
-                const results: any[] = [];
-                
-                for (const el of elements) {
-                    if (el.getAttribute('role') === 'row') {
-                        const authorEl = el.querySelector('[data-testid="author"]');
-                        const copyableEl = el.querySelector('.copyable-text[data-pre-plain-text]');
-                        
-                        let cleanText = '';
-                        let replyToObj: any = null;
+            // Функция извлечения видимых элементов
+            const extractCurrentView = async () => {
+                return await page.evaluate(() => {
+                    const main = document.querySelector('#main');
+                    if (!main) return [];
+                    
+                    const elements = Array.from(main.querySelectorAll('[role="row"], span[dir="auto"]'));
+                    const results: any[] = [];
+                    
+                    for (const el of elements) {
+                        if (el.getAttribute('role') === 'row') {
+                            const authorEl = el.querySelector('[data-testid="author"]');
+                            const copyableEl = el.querySelector('.copyable-text[data-pre-plain-text]');
+                            
+                            let cleanText = '';
+                            let replyToObj: any = null;
 
-                        if (copyableEl) {
-                            const clone = copyableEl.cloneNode(true) as HTMLElement;
-                            
-                            const quotedMsg = clone.querySelector('[data-testid="quoted-message"], [aria-label="Процитированное сообщение"]');
-                            if (quotedMsg) {
-                                let rSender = '';
-                                let rPhone = '';
-                                const authorEls = Array.from(quotedMsg.querySelectorAll('[data-testid="author"]'));
-                                if (authorEls.length > 0) {
-                                    const texts = authorEls.map(e => (e as HTMLElement).innerText.trim()).filter(Boolean);
-                                    texts.forEach(t => {
-                                        const digits = t.replace(/\D/g, '');
-                                        if (digits.length >= 7 && !/[a-zA-Zа-яА-ЯёЁ]/.test(t)) {
-                                            rPhone = t;
-                                        } else {
-                                            rSender += (rSender ? ' ' : '') + t;
-                                        }
-                                    });
+                            if (copyableEl) {
+                                const clone = copyableEl.cloneNode(true) as HTMLElement;
+                                
+                                const quotedMsg = clone.querySelector('[data-testid="quoted-message"], [aria-label="Процитированное сообщение"]');
+                                if (quotedMsg) {
+                                    let rSender = '';
+                                    let rPhone = '';
+                                    const authorEls = Array.from(quotedMsg.querySelectorAll('[data-testid="author"]'));
+                                    if (authorEls.length > 0) {
+                                        const texts = authorEls.map(e => (e as HTMLElement).innerText.trim()).filter(Boolean);
+                                        texts.forEach(t => {
+                                            const digits = t.replace(/\D/g, '');
+                                            if (digits.length >= 7 && !/[a-zA-Zа-яА-ЯёЁ]/.test(t)) {
+                                                rPhone = t;
+                                            } else {
+                                                rSender += (rSender ? ' ' : '') + t;
+                                            }
+                                        });
+                                    }
+                                    
+                                    let rText = '';
+                                    const textEl = quotedMsg.querySelector('[data-testid="selectable-text"], .quoted-mention');
+                                    if (textEl) {
+                                        rText = (textEl as HTMLElement).innerText || '';
+                                    } else {
+                                        const qClone = quotedMsg.cloneNode(true) as HTMLElement;
+                                        Array.from(qClone.querySelectorAll('[data-testid="author"]')).forEach(e => e.remove());
+                                        rText = qClone.innerText.trim();
+                                    }
+                                    
+                                    if (rSender || rPhone || rText) {
+                                        replyToObj = {
+                                            sender: rSender,
+                                            ...(rPhone ? { phone: rPhone } : {}),
+                                            text: rText.trim()
+                                        };
+                                    }
+                                    quotedMsg.remove();
                                 }
                                 
-                                let rText = '';
-                                const textEl = quotedMsg.querySelector('[data-testid="selectable-text"], .quoted-mention');
-                                if (textEl) {
-                                    rText = (textEl as HTMLElement).innerText || '';
+                                const selectableTextEl = clone.querySelector('[data-testid="selectable-text"]');
+                                if (selectableTextEl) {
+                                    cleanText = (selectableTextEl as HTMLElement).innerText || '';
                                 } else {
-                                    const qClone = quotedMsg.cloneNode(true) as HTMLElement;
-                                    Array.from(qClone.querySelectorAll('[data-testid="author"]')).forEach(e => e.remove());
-                                    rText = qClone.innerText.trim();
+                                    cleanText = clone.innerText || '';
+                                }
+                            } else {
+                                const clone = el.cloneNode(true) as HTMLElement;
+                                
+                                const quotedMsg = clone.querySelector('[data-testid="quoted-message"], [aria-label="Процитированное сообщение"]');
+                                if (quotedMsg) {
+                                    let rSender = '';
+                                    let rPhone = '';
+                                    const authorEls = Array.from(quotedMsg.querySelectorAll('[data-testid="author"]'));
+                                    if (authorEls.length > 0) {
+                                        const texts = authorEls.map(e => (e as HTMLElement).innerText.trim()).filter(Boolean);
+                                        texts.forEach(t => {
+                                            const digits = t.replace(/\D/g, '');
+                                            if (digits.length >= 7 && !/[a-zA-Zа-яА-ЯёЁ]/.test(t)) {
+                                                rPhone = t;
+                                            } else {
+                                                rSender += (rSender ? ' ' : '') + t;
+                                            }
+                                        });
+                                    }
+                                    
+                                    let rText = '';
+                                    const textEl = quotedMsg.querySelector('[data-testid="selectable-text"], .quoted-mention');
+                                    if (textEl) {
+                                        rText = (textEl as HTMLElement).innerText || '';
+                                    } else {
+                                        const qClone = quotedMsg.cloneNode(true) as HTMLElement;
+                                        Array.from(qClone.querySelectorAll('[data-testid="author"]')).forEach(e => e.remove());
+                                        rText = qClone.innerText.trim();
+                                    }
+                                    
+                                    if (rSender || rPhone || rText) {
+                                        replyToObj = {
+                                            sender: rSender,
+                                            ...(rPhone ? { phone: rPhone } : {}),
+                                            text: rText.trim()
+                                        };
+                                    }
+                                    quotedMsg.remove();
                                 }
                                 
-                                if (rSender || rPhone || rText) {
-                                    replyToObj = {
-                                        sender: rSender,
-                                        ...(rPhone ? { phone: rPhone } : {}),
-                                        text: rText.trim()
-                                    };
-                                }
-                                quotedMsg.remove();
-                            }
-                            
-                            const selectableTextEl = clone.querySelector('[data-testid="selectable-text"]');
-                            if (selectableTextEl) {
-                                cleanText = (selectableTextEl as HTMLElement).innerText || '';
-                            } else {
                                 cleanText = clone.innerText || '';
                             }
-                        } else {
-                            const clone = el.cloneNode(true) as HTMLElement;
-                            
-                            const quotedMsg = clone.querySelector('[data-testid="quoted-message"], [aria-label="Процитированное сообщение"]');
-                            if (quotedMsg) {
-                                let rSender = '';
-                                let rPhone = '';
-                                const authorEls = Array.from(quotedMsg.querySelectorAll('[data-testid="author"]'));
-                                if (authorEls.length > 0) {
-                                    const texts = authorEls.map(e => (e as HTMLElement).innerText.trim()).filter(Boolean);
-                                    texts.forEach(t => {
-                                        const digits = t.replace(/\D/g, '');
-                                        if (digits.length >= 7 && !/[a-zA-Zа-яА-ЯёЁ]/.test(t)) {
-                                            rPhone = t;
-                                        } else {
-                                            rSender += (rSender ? ' ' : '') + t;
-                                        }
-                                    });
-                                }
-                                
-                                let rText = '';
-                                const textEl = quotedMsg.querySelector('[data-testid="selectable-text"], .quoted-mention');
-                                if (textEl) {
-                                    rText = (textEl as HTMLElement).innerText || '';
-                                } else {
-                                    const qClone = quotedMsg.cloneNode(true) as HTMLElement;
-                                    Array.from(qClone.querySelectorAll('[data-testid="author"]')).forEach(e => e.remove());
-                                    rText = qClone.innerText.trim();
-                                }
-                                
-                                if (rSender || rPhone || rText) {
-                                    replyToObj = {
-                                        sender: rSender,
-                                        ...(rPhone ? { phone: rPhone } : {}),
-                                        text: rText.trim()
-                                    };
-                                }
-                                quotedMsg.remove();
-                            }
-                            
-                            cleanText = clone.innerText || '';
-                        }
 
-                        results.push({
-                            type: 'message',
-                            authorText: authorEl ? (authorEl.textContent || '') : '',
-                            authorAria: authorEl ? (authorEl.getAttribute('aria-label') || '') : '',
-                            prePlainText: copyableEl ? (copyableEl.getAttribute('data-pre-plain-text') || '') : '',
-                            copyableText: cleanText,
-                            rawText: cleanText,
-                            replyTo: replyToObj
-                        });
-                    } else {
-                        if (!el.closest('[role="row"]')) {
                             results.push({
-                                type: 'banner',
-                                text: (el as HTMLElement).innerText || ''
+                                type: 'message',
+                                authorText: authorEl ? (authorEl.textContent || '') : '',
+                                authorAria: authorEl ? (authorEl.getAttribute('aria-label') || '') : '',
+                                prePlainText: copyableEl ? (copyableEl.getAttribute('data-pre-plain-text') || '') : '',
+                                copyableText: cleanText,
+                                rawText: cleanText,
+                                replyTo: replyToObj
                             });
+                        } else {
+                            if (!el.closest('[role="row"]')) {
+                                results.push({
+                                    type: 'banner',
+                                    text: (el as HTMLElement).innerText || ''
+                                });
+                            }
                         }
                     }
+                    return results;
+                });
+            };
+
+            let allRawElements: any[] = [];
+            const seenKeys = new Set<string>();
+
+            // 1. Берем текущий вид (низ чата)
+            let currentView = await extractCurrentView();
+            currentView.forEach(item => {
+                const key = item.type === 'banner' ? `banner_${item.text}` : `msg_${item.prePlainText}_${item.rawText}`;
+                if (!seenKeys.has(key)) {
+                    seenKeys.add(key);
+                    allRawElements.push(item);
                 }
-                return results;
             });
-            
+
+            // 2. Скроллим вверх несколько раз, чтобы подгрузить старые сообщения за сегодня/вчера
+            try {
+                const mainEl = page.locator('#main');
+                await mainEl.hover({ force: true }).catch(() => {});
+                
+                for (let i = 0; i < 4; i++) {
+                    await page.mouse.wheel(0, -2000);
+                    await page.waitForTimeout(1000); // Даем время на рендер
+                    
+                    let olderView = await extractCurrentView();
+                    let newItemsForView: any[] = [];
+                    
+                    olderView.forEach(item => {
+                        const key = item.type === 'banner' ? `banner_${item.text}` : `msg_${item.prePlainText}_${item.rawText}`;
+                        if (!seenKeys.has(key)) {
+                            seenKeys.add(key);
+                            newItemsForView.push(item);
+                        }
+                    });
+                    
+                    // Добавляем новые элементы В НАЧАЛО общего массива, сохраняя их хронологический порядок
+                    allRawElements = [...newItemsForView, ...allRawElements];
+                }
+            } catch (e) {}
+
+            const rawElementsData = allRawElements;
+
             const structuredItems = processRawItems(rawElementsData);
             const filteredMessages = filterActualMessages(structuredItems, check.dateStr);
             
