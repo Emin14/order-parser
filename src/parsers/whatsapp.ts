@@ -369,10 +369,22 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                 
                 for (let i = 0; i < 4; i++) {
                     await page.evaluate(() => {
-                        const main = document.querySelector('#main');
-                        if (main) {
-                            const rows = main.querySelectorAll('[role="row"]');
-                            if (rows.length > 0) {
+                        const rows = document.querySelectorAll('#main [role="row"]');
+                        if (rows.length > 0) {
+                            let el = rows[0].parentElement;
+                            let scrolled = false;
+                            while (el && el !== document.body) {
+                                const style = window.getComputedStyle(el);
+                                if (style.overflowY === 'scroll' || style.overflowY === 'auto' || el.getAttribute('data-testid') === 'conversation-panel-messages') {
+                                    el.scrollTop = Math.max(0, el.scrollTop - 2500);
+                                    el.dispatchEvent(new WheelEvent('wheel', { deltaY: -2500, bubbles: true }));
+                                    scrolled = true;
+                                    break;
+                                }
+                                el = el.parentElement;
+                            }
+                            // Фолбэк, если контейнер не найден
+                            if (!scrolled && rows[0]) {
                                 rows[0].scrollIntoView(true);
                             }
                         }
