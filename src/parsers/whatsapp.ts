@@ -368,7 +368,13 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                 await mainEl.hover({ force: true }).catch(() => {});
                 
                 for (let i = 0; i < 4; i++) {
-                    await page.mouse.wheel(0, -2000);
+                    await page.evaluate(() => {
+                        const main = document.querySelector('#main');
+                        if (main) {
+                            const scroller = main.querySelector('[data-testid="conversation-panel-messages"]') || main.querySelector('div[tabindex="-1"]');
+                            if (scroller) scroller.scrollBy(0, -3000);
+                        }
+                    });
                     await page.waitForTimeout(1000); // Даем время на рендер
                     
                     let olderView = await extractCurrentView();
