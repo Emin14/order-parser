@@ -404,18 +404,22 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                         }
                     });
                     
+                    if (newItemsForView.length === 0) {
+                        break; // Достигли начала чата, новых элементов нет
+                    }
+                    
                     // Добавляем новые элементы В НАЧАЛО общего массива, сохраняя их хронологический порядок
                     allRawElements = [...newItemsForView, ...allRawElements];
+
+                    // Оптимизация: если мы доскроллили до совсем старых дней, прекращаем скролл
+                    const hasOldBanner = newItemsForView.some(item => item.type === 'banner' && getBannerDateCategory(item.text) === 'older');
+                    if (hasOldBanner) {
+                        break;
+                    }
                 }
             } catch (e) {}
 
             const rawElementsData = allRawElements;
-
-            try {
-                require('fs').writeFileSync(`debug_wa_${chatName.replace(/[^a-zа-я0-9]/gi, '_')}.json`, JSON.stringify({ raw: rawElementsData }, null, 2));
-            } catch (err) {
-                console.error("Debug write failed", err);
-            }
 
             const structuredItems = processRawItems(rawElementsData);
             const filteredMessages = filterActualMessages(structuredItems, check.dateStr);
