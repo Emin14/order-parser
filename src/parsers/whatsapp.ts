@@ -408,7 +408,21 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                     });
                     
                     if (newItemsForView.length === 0) {
-                        break; // Достигли начала чата, новых элементов нет
+                        // Возможно WhatsApp долго подгружает историю из БД (крутится спиннер).
+                        // Дадим ему еще немного времени и проверим снова.
+                        await page.waitForTimeout(1500);
+                        olderView = await extractCurrentView();
+                        olderView.forEach(item => {
+                            const key = item.type === 'banner' ? `banner_${item.text}` : `msg_${item.prePlainText}_${item.rawText}`;
+                            if (!seenKeys.has(key)) {
+                                seenKeys.add(key);
+                                newItemsForView.push(item);
+                            }
+                        });
+                        
+                        if (newItemsForView.length === 0) {
+                            break; // Достигли начала чата, новых элементов точно нет
+                        }
                     }
                     
                     allRawElements = [...newItemsForView, ...allRawElements];
