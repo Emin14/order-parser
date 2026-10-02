@@ -218,6 +218,16 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                 await page.waitForTimeout(2000); // фоллбэк
             }
             
+            // Прокручиваем историю чата вверх, чтобы подгрузить более старые сообщения за сегодня
+            try {
+                const mainEl = page.locator('#main');
+                await mainEl.hover({ force: true }).catch(() => {});
+                await page.mouse.wheel(0, -15000);
+                await page.waitForTimeout(1000);
+                await page.mouse.wheel(0, -15000);
+                await page.waitForTimeout(1000);
+            } catch (e) {}
+            
             const rawElementsData = await page.evaluate(() => {
                 const main = document.querySelector('#main');
                 if (!main) return [];
