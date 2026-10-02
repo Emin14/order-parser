@@ -94,12 +94,15 @@ function filterActualMessages(items: any[], chatDateFallback: string = ''): Mess
     }
     
     let currentCategory = fallbackCategory;
-
-    const hasBanners = items.some(item => item.type === 'banner');
-    if (hasBanners) {
-        // Если в чате есть хотя бы один баннер, значит мы точно знаем границу.
-        // Но первое сообщение ДО баннера может быть из fallbackCategory.
-        currentCategory = fallbackCategory; 
+    const firstBannerIndex = items.findIndex(item => item.type === 'banner');
+    
+    if (firstBannerIndex !== -1) {
+        // Если в чате есть баннеры, то сообщения ДО первого баннера 
+        // гарантированно старше, чем дата первого баннера.
+        const firstBannerCat = getBannerDateCategory(items[firstBannerIndex].text);
+        if (firstBannerCat === 'today') currentCategory = 'yesterday';
+        else if (firstBannerCat === 'yesterday') currentCategory = 'dayBeforeYesterday';
+        else currentCategory = 'older';
     }
 
     for (let item of items) {
