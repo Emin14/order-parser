@@ -371,11 +371,13 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                     await page.evaluate(() => {
                         const main = document.querySelector('#main');
                         if (main) {
-                            const scroller = main.querySelector('[data-testid="conversation-panel-messages"]') || main.querySelector('div[tabindex="-1"]');
-                            if (scroller) scroller.scrollBy(0, -3000);
+                            const rows = main.querySelectorAll('[role="row"]');
+                            if (rows.length > 0) {
+                                rows[0].scrollIntoView(true);
+                            }
                         }
                     });
-                    await page.waitForTimeout(1000); // Даем время на рендер
+                    await page.waitForTimeout(1500); // Даем время на рендер
                     
                     let olderView = await extractCurrentView();
                     let newItemsForView: any[] = [];
