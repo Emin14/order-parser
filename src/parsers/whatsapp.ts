@@ -205,7 +205,18 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
         if (check.isActual) {
             console.log(`📥 [WhatsApp] Копируем и структурируем сообщения из: ${chatName}...`);
             await chatLocator.click();
-            await page.waitForTimeout(1500); 
+            
+            // Ждём перерисовки чата (смены заголовка) чтобы не собрать старый открытый чат
+            try {
+                await page.waitForFunction((expectedName) => {
+                    const header = document.querySelector('#main header, [data-testid="conversation-info-header"]');
+                    if (!header) return false;
+                    const text = header.textContent || '';
+                    return text.includes(expectedName) || expectedName.includes(text.trim());
+                }, chatName, { timeout: 4000 });
+            } catch (e) {
+                await page.waitForTimeout(2000); // фоллбэк
+            }
             
             const rawElementsData = await page.evaluate(() => {
                 const main = document.querySelector('#main');

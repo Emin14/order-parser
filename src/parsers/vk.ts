@@ -609,7 +609,19 @@ export async function parseVk(context: BrowserContext): Promise<OrderResult[]> {
                 
                 await chat.scrollIntoViewIfNeeded().catch(() => {});
                 await chat.evaluate((el: HTMLElement) => el.click());
-                await page.waitForTimeout(1200); 
+                
+                // Ждём перерисовки чата, чтобы случайно не спарсить старый открытый чат
+                try {
+                    await page.waitForFunction((expectedName) => {
+                        const header = document.querySelector('.ConvoHeader, .im-page--title-wrapper, .PeerTitle__title, .ConvoHeader__title, .im-page--header-chat-name');
+                        if (!header) return false;
+                        const text = header.textContent || '';
+                        // Ищем совпадение названия
+                        return text.includes(expectedName) || expectedName.includes(text.trim());
+                    }, chatName, { timeout: 4000 });
+                } catch (e) {
+                    await page.waitForTimeout(2000); // фоллбэк если заголовок не найден
+                }
 
                 const order = await extractMessagesFromOpenChat(page, chatName, check.dateStr);
                 if (order && order.length > 0) {
