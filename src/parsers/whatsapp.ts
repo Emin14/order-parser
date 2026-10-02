@@ -25,13 +25,32 @@ function processRawItems(items: any[]): any[] {
 
         let time = "";
         let strPreText = "";
+        let explicitDateCat: string | undefined = undefined;
 
         if (item.prePlainText) {
             const match = item.prePlainText.match(/\[(.*?)\]\s*(.*?):/);
             if (match) {
-                const timeMatch = match[1].match(/\d{2}:\d{2}/);
+                const dateTime = match[1];
+                const timeMatch = dateTime.match(/\d{2}:\d{2}/);
                 if (timeMatch) time = timeMatch[0];
                 strPreText = match[2].replace(/^~/, '');
+                
+                const now = new Date();
+                const d = now.getDate().toString().padStart(2, '0');
+                const m = (now.getMonth() + 1).toString().padStart(2, '0');
+                const todayStr = `${d}.${m}`;
+                
+                const yesterday = new Date(now);
+                yesterday.setDate(yesterday.getDate() - 1);
+                const yd = yesterday.getDate().toString().padStart(2, '0');
+                const ym = (yesterday.getMonth() + 1).toString().padStart(2, '0');
+                const yesterdayStr = `${yd}.${ym}`;
+
+                if (dateTime.includes(todayStr) || dateTime.toLowerCase().includes('сегодня') || dateTime.toLowerCase().includes('today')) {
+                    explicitDateCat = 'today';
+                } else if (dateTime.includes(yesterdayStr) || dateTime.toLowerCase().includes('вчера') || dateTime.toLowerCase().includes('yesterday')) {
+                    explicitDateCat = 'yesterday';
+                }
             }
         }
 
@@ -71,6 +90,7 @@ function processRawItems(items: any[]): any[] {
         processed.push({
             type: 'message',
             time: time,
+            explicitDateCat: explicitDateCat,
             sender: currentSender,
             phone: currentPhone,
             text: text.trim(),
@@ -114,8 +134,10 @@ function filterActualMessages(items: any[], chatDateFallback: string = ''): Mess
         if (item.type === 'message') {
             if (!item.text) continue;
             
+            const effCategory = item.explicitDateCat || currentCategory;
+            
             // Проверяем актуальность с учетом категории даты, времени и текста ("на завтра")
-            if (isMessageActual(currentCategory, item.time, item.text)) {
+            if (isMessageActual(effCategory, item.time, item.text)) {
                 validMessages.push({
                     sender: item.sender || '',
                     phone: item.phone || '',
