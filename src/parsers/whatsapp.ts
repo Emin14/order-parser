@@ -362,34 +362,14 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                 }
             });
 
-            // 2. Скроллим вверх несколько раз, чтобы подгрузить старые сообщения за сегодня/вчера
+            // 2. Скроллим вверх несколько раз
             try {
                 const mainEl = page.locator('#main');
-                await mainEl.hover({ force: true }).catch(() => {});
+                await mainEl.click({ force: true }).catch(() => {});
                 
-                for (let i = 0; i < 4; i++) {
-                    await page.evaluate(() => {
-                        const rows = document.querySelectorAll('#main [role="row"]');
-                        if (rows.length > 0) {
-                            let el = rows[0].parentElement;
-                            let scrolled = false;
-                            while (el && el !== document.body) {
-                                const style = window.getComputedStyle(el);
-                                if (style.overflowY === 'scroll' || style.overflowY === 'auto' || el.getAttribute('data-testid') === 'conversation-panel-messages') {
-                                    el.scrollTop = Math.max(0, el.scrollTop - 2500);
-                                    el.dispatchEvent(new WheelEvent('wheel', { deltaY: -2500, bubbles: true }));
-                                    scrolled = true;
-                                    break;
-                                }
-                                el = el.parentElement;
-                            }
-                            // Фолбэк, если контейнер не найден
-                            if (!scrolled && rows[0]) {
-                                rows[0].scrollIntoView(true);
-                            }
-                        }
-                    });
-                    await page.waitForTimeout(1500); // Даем время на рендер
+                for (let i = 0; i < 5; i++) {
+                    await page.keyboard.press('PageUp');
+                    await page.waitForTimeout(1000); // Даем время на рендер
                     
                     let olderView = await extractCurrentView();
                     let newItemsForView: any[] = [];
