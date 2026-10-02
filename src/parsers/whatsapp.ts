@@ -410,42 +410,16 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                     
                     allRawElements = [...newItemsForView, ...allRawElements];
 
-                    // Умная оптимизация: определяем, насколько далеко нам вообще нужно смотреть назад
-                    const now = new Date();
-                    const h = now.getHours();
-                    const dayOfWeek = now.getDay();
-                    const isDay = h >= 6 && h < 18;
-                    const isEvening = h >= 18;
-                    // В пт вечером (сейчас) мы ищем ТОЛЬКО 'today' (сегодня)
-                    let maxAllowedCat = 'yesterday';
-                    if (isEvening && dayOfWeek !== 0) {
-                        maxAllowedCat = 'today';
-                    } else if (isDay && dayOfWeek === 1) {
-                        maxAllowedCat = 'dayBeforeYesterday';
-                    }
-
-                    // Если мы наткнулись на баннер, который старше нашего maxAllowedCat, то останавливаемся
-                    let hitTooOld = false;
-                    for (const itm of newItemsForView) {
-                        if (itm.type === 'banner') {
-                            const cat = getBannerDateCategory(itm.text);
-                            if (cat === 'older') hitTooOld = true;
-                            if (maxAllowedCat === 'today' && (cat === 'yesterday' || cat === 'dayBeforeYesterday')) hitTooOld = true;
-                            if (maxAllowedCat === 'yesterday' && cat === 'dayBeforeYesterday') hitTooOld = true;
-                        }
-                    }
-                    
-                    if (hitTooOld) {
+                    // Универсальная оптимизация: останавливаемся, если дошли до старых дней (>2 дней назад)
+                    // Это гарантированно работает и в воскресенье, и в понедельник, предотвращая скролл вглубь недель
+                    const hasOldBanner = newItemsForView.some(item => item.type === 'banner' && getBannerDateCategory(item.text) === 'older');
+                    if (hasOldBanner) {
                         break;
                     }
                 }
             } catch (e) {}
 
             const rawElementsData = allRawElements;
-
-            try {
-                require('fs').writeFileSync(`debug_wa_${chatName.replace(/[^a-zа-я0-9]/gi, '_')}.json`, JSON.stringify({ raw: rawElementsData }, null, 2));
-            } catch (err) {}
 
             const structuredItems = processRawItems(rawElementsData);
             const filteredMessages = filterActualMessages(structuredItems, check.dateStr);
