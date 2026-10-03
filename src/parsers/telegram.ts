@@ -200,7 +200,7 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
 
         console.log(`   🔎 [Telegram-DEBUG] Шаг ${step}: Найдено сообщений на экране: ${cur.length}, Первое сообщение: ${firstText}`);
 
-        if (reachedBoundary && step > 2) {
+        if (reachedBoundary) {
             console.log(`   ⏹️ [Telegram] Достигнута граница даты (шаг ${step})`);
             break; 
         }
