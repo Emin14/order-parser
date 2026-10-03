@@ -425,8 +425,17 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                     allRawElements = [...newItemsForView, ...allRawElements];
 
                     // Универсальная оптимизация: останавливаемся, если дошли до старых дней (>2 дней назад)
-                    // Это гарантированно работает и в воскресенье, и в понедельник, предотвращая скролл вглубь недель
-                    const hasOldBanner = newItemsForView.some(item => item.type === 'banner' && getBannerDateCategory(item.text) === 'older');
+                    // Теперь проверяем не только визуальные плашки, но и точные даты из метаданных сообщений
+                    const hasOldBanner = newItemsForView.some(item => {
+                        if (item.type === 'banner' && getBannerDateCategory(item.text) === 'older') return true;
+                        if (item.type === 'message' && item.prePlainText) {
+                            // Формат: [18:12, 02.10.2026]
+                            const m = item.prePlainText.match(/\[.*?,\s*(\d{2}\.\d{2}\.\d{4})\]/);
+                            if (m && getBannerDateCategory(m[1]) === 'older') return true;
+                        }
+                        return false;
+                    });
+                    
                     if (hasOldBanner) {
                         break;
                     }
