@@ -1,10 +1,22 @@
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { loadBrowserConfig } = require('./browser-config.cjs');
 
 function createShortcut(config) {
+    if (process.platform === 'darwin') {
+        const args = ['--user-data-dir=' + config.userDataDir, '--restore-last-session'];
+        const child = spawn(config.browserPath, args, {
+            cwd: config.projectRoot,
+            detached: true,
+            stdio: 'ignore',
+        });
+        child.unref();
+        console.log(`Браузер открыт с рабочим профилем: ${config.userDataDir}`);
+        console.log('Выполните входы в мессенджеры, затем закройте окно браузера и запустите npm start.');
+        return;
+    }
     if (process.platform !== 'win32') {
-        throw new Error('Создание ярлыка .lnk поддерживается только в Windows.');
+        throw new Error('Автоматический запуск профиля поддерживается на Windows и macOS.');
     }
     // Восстанавливаем сохранённую сессию, не добавляя вкладки при каждом запуске.
     const args = `--user-data-dir="${config.userDataDir}" --restore-last-session`;
