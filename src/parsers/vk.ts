@@ -544,6 +544,18 @@ async function collectVkOrders(context: BrowserContext): Promise<OrderResult[]> 
         await page.goto('https://vk.ru/im', { waitUntil: 'domcontentloaded' });
         await activateTab(page);
     }
+
+    // При первом запуске VK может показать QR-код. Даём время завершить вход,
+    // иначе парсер закроет профиль раньше, чем cookies успеют сохраниться.
+    if (!page.url().includes('/im') && !page.url().includes('web.vk.')) {
+        console.log('🔐 [VK] Требуется вход. Ожидаем авторизацию по QR-коду до 1 минуты...');
+        try {
+            await page.waitForURL(/\/im(?:[/?#]|$)/, { timeout: 60000, waitUntil: 'domcontentloaded' });
+            console.log('✅ [VK] Авторизация завершена, продолжаем сбор.');
+        } catch {
+            throw new Error('VK не завершил авторизацию за 1 минуту. Оставьте окно VK открытым и повторите npm start.');
+        }
+    }
     
     // Закрываем открытый чат, если мы уже находимся внутри него
     // (иначе интерфейс может скрывать вкладки с папками)
