@@ -1,17 +1,13 @@
 import { chromium } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as dotenv from 'dotenv';
 import { parseWhatsApp } from './parsers/whatsapp';
 import { parseTelegram } from './parsers/telegram';
 import { parseVk } from './parsers/vk';
 import { OrderResult } from './types';
 
-// Загружаем переменные окружения из файла .env
-dotenv.config();
-
-const USER_DATA_DIR = process.env.USER_DATA_DIR || 'C:\\Users\\emina\\.yandex-debug';
-const YANDEX_PATH = process.env.YANDEX_PATH || 'C:\\Program Files\\Yandex\\YandexBrowser\\Application\\browser.exe';
+// Общие настройки для сборщика и ярлыка рабочего браузера.
+const { loadBrowserConfig } = require('../scripts/browser-config.cjs');
 
 // ПЕРЕКЛЮЧАТЕЛЬ ДЛЯ ТЕСТИРОВАНИЯ WORD-ЭКСПОРТА:
 // Установите USE_MOCK_DATA = true, чтобы использовать готовый mock_orders.json без запуска браузера
@@ -41,10 +37,11 @@ async function main() {
             const mockData = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'mock_orders.json'), 'utf8'));
             allOrders.push(...mockData);
         } else {
-            console.log('🚀 Запуск Яндекс.Браузера...');
-            const context = await chromium.launchPersistentContext(USER_DATA_DIR, {
+            const { browserPath, userDataDir } = loadBrowserConfig();
+            console.log('🚀 Запуск браузера заказов...');
+            const context = await chromium.launchPersistentContext(userDataDir, {
                 headless: false, 
-                executablePath: YANDEX_PATH,
+                executablePath: browserPath,
                 viewport: null, 
                 args: ['--test-type', '--disable-gpu', '--disable-gpu-shader-disk-cache'],
                 ignoreDefaultArgs: ['--enable-automation'] 
@@ -87,7 +84,12 @@ async function main() {
 
         console.log('\n===================================');
         console.log(`🎉 ВСЕГО СОБРАНО ЗАКАЗОВ: ${allOrders.length}`);
-        console.dir(allOrders, { depth: null, colors: true });
+        // Не печатаем все тексты сообщений: большой console.dir задерживает начало Word-экспорта.
+        console.table(allOrders.map(order => ({
+            messenger: order.messenger,
+            chat: order.chatName,
+            messages: order.messages.length,
+        })));
         console.log('===================================\n');
 
         // Сохраняем в отдельный JSON-файл в корне проекта
@@ -118,7 +120,10 @@ async function main() {
         const wordOutputPath = path.join(process.cwd(), fileName);
         
         const { exportToWord } = await import('./utils/word_exporter');
+        const exportStartedAt = Date.now();
+        console.log(`📝 Начинаем создание Word-файла: ${wordOutputPath}`);
         await exportToWord(allOrders, wordOutputPath, fromTime);
+        console.log(`⏱️ Word-файл подготовлен за ${((Date.now() - exportStartedAt) / 1000).toFixed(1)} с`);
 
         console.log('⏳ Ожидание 5 минут перед завершением...');
         await new Promise(r => setTimeout(r, 300000));

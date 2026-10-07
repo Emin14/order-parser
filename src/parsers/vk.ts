@@ -2,6 +2,48 @@ import { BrowserContext, Page } from 'playwright';
 import { OrderResult, MessageItem } from '../types';
 import { parseVkDate, getBannerDateCategory, isMessageActual } from '../utils/date';
 
+// Временная диагностика: только читает DOM, ничего не нажимает и не скрывает.
+async function logVkSpy(page: Page, stage: string): Promise<void> {
+    console.log(`🕵️ [VK spy] ${stage}`);
+    try {
+        const state = await page.evaluate(() => {
+            const selectors = [
+                'section[data-testid="me_convo_list"]',
+                'button[data-testid="vkme_convo_list_item"]',
+                '[data-testid^="me_folder_tab_"]',
+                '.FriendsBirthdayBanner__container',
+                '.ConvoMain', '.ConvoHistory', '.ConvoHeader',
+                '[class*="ConvoMessage"]', '.MessageText', '.DateSeparator',
+            ];
+            const folders = Array.from(document.querySelectorAll('[data-testid^="me_folder_tab_"], .OrganiserViewHorizontal__item, .ConvoListFolders__item'));
+            const oldMatches = Array.from(document.querySelectorAll('.OrganiserViewHorizontal__item, [data-testid^="me_folder_tab_"], .ConvoListFolders__item, [class*="Folder"], [class*="folder"]'))
+                .filter(el => (el.textContent || '').includes('Заказы'));
+            const scrollBoxes = Array.from(document.querySelectorAll('[data-scrollbar="scrollable"]')).map(el => ({
+                class: el.className, top: el.scrollTop, height: el.clientHeight, totalHeight: el.scrollHeight,
+            }));
+            return {
+                counts: Object.fromEntries(selectors.map(selector => [selector, document.querySelectorAll(selector).length])),
+                folders: folders.slice(0, 15).map(el => ({
+                    label: (el.querySelector('.vkuiTabsItem__label')?.textContent || el.getAttribute('aria-label') || '').trim(),
+                    testid: el.getAttribute('data-testid'), selected: el.getAttribute('aria-selected'),
+                    class: el.className, visible: (el as HTMLElement).getClientRects().length > 0,
+                })),
+                firstOldMatch: oldMatches[0] ? {
+                    tag: oldMatches[0].tagName, class: oldMatches[0].className,
+                    testid: oldMatches[0].getAttribute('data-testid'),
+                    selected: oldMatches[0].getAttribute('aria-selected'),
+                    matchCount: oldMatches.length,
+                } : null,
+                scrollBoxes,
+            };
+        });
+        console.log(`   URL: ${page.url()}; closed=${page.isClosed()}; now=${new Date().toString()}`);
+        console.log('   DOM:', JSON.stringify(state));
+    } catch (error) {
+        console.log('   Диагностика недоступна:', error instanceof Error ? error.message : String(error));
+    }
+}
+
 /**
  * Извлечение сырых элементов (баннеров и сообщений) из открытого диалога ВКонтакте
  */
@@ -213,6 +255,7 @@ function filterActualVkMessages(items: any[], chatName: string, chatDateFallback
         }
     }
 
+    console.log(`🕵️ [VK spy] Фильтрация [${chatName}]: вход=${items.length}, принято=${validMessages.length}, отброшено=${items.length - validMessages.length}, дата чата=${JSON.stringify(chatDateFallback)}, fallback=${fallbackCategory}`);
     return validMessages;
 }
 
@@ -280,6 +323,7 @@ async function getChatHistoryScrollBox(page: Page): Promise<{ x: number, y: numb
  * 3. Сортируем всё хронологически и фильтруем по правилам смены.
  */
 async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDateStr: string): Promise<MessageItem[]> {
+    await logVkSpy(page, `диалог открыт: ${chatName}`);
     // Ждем появления хотя бы одного сообщения в открытом чате
     await page.locator('[class*="ConvoMessage"], .MessageText').first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
 
@@ -332,6 +376,8 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
     for (let step = 1; step <= 40; step++) {
         const currentElements = await page.evaluate(extractVkElementsFromDom);
         registerItems(currentElements);
+
+        console.log(`🕵️ [VK spy] История [${chatName}], вверх ${step}: DOM=${currentElements.length}, сообщений=${currentElements.filter(item => item.type === 'message').length}, накоплено=${masterList.length}`);
 
         // Проверяем: видна ли дата старше вчера?
         const stickyText = await page.evaluate(() => {
@@ -430,6 +476,7 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
         registerItems(currentElements);
 
         const messages = currentElements.filter(item => item.type === 'message');
+        console.log(`🕵️ [VK spy] История [${chatName}], вниз ${step}: DOM=${currentElements.length}, сообщений=${messages.length}, накоплено=${masterList.length}`);
         const lastMsg = messages[messages.length - 1];
         const lastMsgKey = lastMsg ? `${lastMsg.sender}_${lastMsg.time}_${lastMsg.text.slice(0, 30)}` : '';
         if (lastMsgKey && lastMsgKey === prevLastMessageKey) {
@@ -453,10 +500,26 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
     }
     const rawItems = masterList.map(x => x.item);
     const sortedRawItems = sortMessagesChronologically(rawItems, fallbackCategory);
+    console.log(`🕵️ [VK spy] Извлечено [${chatName}]: сырых=${rawItems.length}, перед фильтрацией=${sortedRawItems.length}, даты=${JSON.stringify([...new Set(sortedRawItems.map(item => item.bannerDate || '(нет даты)'))].slice(0, 10))}`);
     return filterActualVkMessages(sortedRawItems, chatName, chatDateStr);
 }
 
 export async function parseVk(context: BrowserContext): Promise<OrderResult[]> {
+    try {
+        return await collectVkOrders(context);
+    } catch (error) {
+        console.error('🕵️ [VK spy] Сбор прерван:', error instanceof Error ? error.stack : String(error));
+        try {
+            const page = context.pages().find(p => /vk\.(com|me|ru)/.test(p.url()));
+            if (page) await logVkSpy(page, 'состояние перед закрытием браузера из-за ошибки');
+        } catch {
+            // Ошибка диагностики не должна подменять исходную ошибку парсера.
+        }
+        throw error;
+    }
+}
+
+async function collectVkOrders(context: BrowserContext): Promise<OrderResult[]> {
     console.log('🔍 [VK] Ищем вкладку ВКонтакте...');
     await new Promise(r => setTimeout(r, 1000));
 
@@ -484,7 +547,9 @@ export async function parseVk(context: BrowserContext): Promise<OrderResult[]> {
     
     // Закрываем открытый чат, если мы уже находимся внутри него
     // (иначе интерфейс может скрывать вкладки с папками)
+    await logVkSpy(page, 'до закрытия текущего диалога');
     await closeActiveVkChat(page);
+    await logVkSpy(page, 'перед выбором папки «Заказы»');
 
     console.log('⚙️ [VK] Переключаемся на папку "Заказы"...');
     // Обновленные селекторы: ищем вкладку более широко (и точные классы из HTML, и универсальные)
@@ -516,6 +581,8 @@ export async function parseVk(context: BrowserContext): Promise<OrderResult[]> {
                 || el.classList.toString().toLowerCase().includes('select');
         }).catch(() => false);
 
+        console.log(`🕵️ [VK spy] Выбор папки: попытка=${attempt + 1}, active=${tabActive}`);
+
         if (tabActive) {
             console.log(`✅ [VK] Папка "Заказы" активна (попытка ${attempt + 1})`);
             break;
@@ -530,8 +597,10 @@ export async function parseVk(context: BrowserContext): Promise<OrderResult[]> {
 
     // Если был открыт какой-то чат — закрываем его
     await closeActiveVkChat(page);
+    await logVkSpy(page, 'после выбора папки и закрытия диалога');
 
     const chatItems = page.locator('button[data-testid="vkme_convo_list_item"]');
+    console.log(`🕵️ [VK spy] Чатов по прежнему селектору: ${await chatItems.count()}`);
     await chatItems.first().waitFor({ state: 'visible', timeout: 10000 });
 
     // 1. Сканируем список вниз, чтобы найти границу неактуальных диалогов
@@ -549,6 +618,8 @@ export async function parseVk(context: BrowserContext): Promise<OrderResult[]> {
         }).catch(() => '');
 
         let check = parseVkDate(dateText);
+
+        console.log(`🕵️ [VK spy] Нижний чат: count=${count}, date=${JSON.stringify(dateText)}, actual=${check.isActual}, reason=${check.reason}`);
 
         if (check.isActual) {
             console.log(`⬇️ [VK] Нижний чат актуален (${check.dateStr} - ${check.reason}). Скроллим вниз...`);
@@ -598,6 +669,8 @@ export async function parseVk(context: BrowserContext): Promise<OrderResult[]> {
             }).catch(() => ({ chatName: `VK Чат`, dateText: '' }));
 
             let check = parseVkDate(dateText);
+
+            console.log(`🕵️ [VK spy] Проверка чата [${chatName}]: date=${JSON.stringify(dateText)}, actual=${check.isActual}, reason=${check.reason}, processed=${uniqueOrders.has(chatName)}`);
             
             // Пропускаем старые
             if (!check.isActual) continue;
@@ -620,10 +693,12 @@ export async function parseVk(context: BrowserContext): Promise<OrderResult[]> {
                         return text.includes(expectedName) || expectedName.includes(text.trim());
                     }, chatName, { timeout: 4000 });
                 } catch (e) {
+                    console.log(`🕵️ [VK spy] Заголовок [${chatName}] не подтверждён за 4 секунды; используется прежний fallback.`);
                     await page.waitForTimeout(2000); // фоллбэк если заголовок не найден
                 }
 
                 const order = await extractMessagesFromOpenChat(page, chatName, check.dateStr);
+                console.log(`🕵️ [VK spy] Результат [${chatName}]: сообщений=${order.length}`);
                 if (order && order.length > 0) {
                     uniqueOrders.set(chatName, { messenger: 'VK', chatName, messages: order });
                 } else {
@@ -660,6 +735,7 @@ export async function parseVk(context: BrowserContext): Promise<OrderResult[]> {
     }
 
     const orders = Array.from(uniqueOrders.values()).filter(o => o.messages.length > 0);
+    console.log(`🕵️ [VK spy] Итог: обработано чатов=${uniqueOrders.size}, без сообщений=${[...uniqueOrders.values()].filter(o => o.messages.length === 0).length}, заказов=${orders.length}`);
     console.log(`\n✅ [VK] Сбор завершен. Получено заказов: ${orders.length}\n`);
     return orders;
 }

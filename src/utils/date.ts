@@ -69,10 +69,35 @@ export function isForTomorrow(text: string, referenceDate: Date): boolean {
  * Разбор текстовых дат ВКонтакте (например: "сегодня в 00:01", "вчера в 23:40", "14 минут назад", "21 сентября в 21:53")
  */
 export function parseVkDate(dateRaw: string): CheckOrderResult {
-    const text = (dateRaw || '').trim().toLowerCase();
+    // В новом интерфейсе VK даты в списке чатов имеют вид «· 8м», «· 5ч», «· 3д».
+    // Убираем декоративную точку и считаем относительное время от текущего момента.
+    const text = (dateRaw || '').replace(/^\s*[·•]\s*/, '').trim().toLowerCase();
     const now = new Date();
     const { mode } = getShiftMode(now);
     const dayOfWeek = now.getDay(); // 0 = вс, 1 = пн
+
+    // VK сокращает относительные даты в списке чатов: «8м», «5ч», «3д».
+    const relativeShort = text.match(/^(\d+)\s*([мчд])$/i);
+    if (relativeShort) {
+        const amount = Number(relativeShort[1]);
+        const unit = relativeShort[2].toLowerCase();
+        const elapsedMinutes = unit === 'м' ? amount : unit === 'ч' ? amount * 60 : amount * 24 * 60;
+        const messageAt = new Date(now.getTime() - elapsedMinutes * 60 * 1000);
+        const sameDay = messageAt.toDateString() === now.toDateString();
+        const messageHour = messageAt.getHours();
+
+        if (sameDay) {
+            if (mode === 'EVENING_NIGHT' && now.getHours() >= 18 && messageHour < 6) {
+                return { isActual: false, dateStr: text, reason: `Относительная дата VK (${text}), сегодня до 06:00` };
+            }
+            return { isActual: true, dateStr: text, reason: `Относительная дата VK (${text}), сегодня` };
+        }
+
+        if (mode === 'DAY' && messageHour >= 6) {
+            return { isActual: true, dateStr: text, reason: `Относительная дата VK (${text}), вчера после 06:00` };
+        }
+        return { isActual: false, dateStr: text, reason: `Относительная дата VK (${text}), вне текущей смены` };
+    }
 
     // 0. "11:38" (сегодняшнее время)
     if (/^\d{1,2}:\d{2}$/.test(text)) {

@@ -100,6 +100,36 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
 
     const configData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
+    function findChatConfig(chatName: string): any {
+        for (const platform of Object.values(configData)) {
+            const found = (platform as any).chats?.find((c: any) => c.name === chatName);
+            if (found) return found;
+        }
+        return {};
+    }
+
+    function isExplicitVenueHeader(header: string, chatConfig: any): boolean {
+        const clean = header.replace(/[:,]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (!clean) return false;
+
+        for (const branch of chatConfig.branches || []) {
+            const names = [branch.name, ...(branch.aliases || [])].filter(Boolean);
+            if (names.some((name: string) => clean.includes(String(name).toLowerCase()))) return true;
+        }
+
+        // Адрес, номер филиала, юрлицо или явно похожее название точки.
+        if (/\d/.test(clean) || /(ип|ооо|зао|ао|ул\.?|улица|проспект|шоссе|дом|плаза|кафе|бар|ресторан|пиццер|восток)/i.test(clean)) {
+            return true;
+        }
+
+        const generic = new Set([
+            'да', 'нет', 'ок', 'хорошо', 'спасибо', 'пожалуйста', 'добрый день', 'добрый вечер',
+            'доброе утро', 'здравствуйте', 'привет', 'на завтра', 'добавка', 'дозаказ'
+        ]);
+        const words = clean.split(/\s+/).filter(Boolean);
+        return words.length <= 4 && !generic.has(clean);
+    }
+
     // --- Фильтр «добора»: оставляем только сообщения после fromTime ---
     function isAfterFrom(msgTime: string | undefined): boolean {
         if (!fromTime) return true;  // режим не задан — берём все
@@ -135,6 +165,9 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         time: string;
         sender: string;
         chatName: string;
+        headerSource: 'explicit' | 'chat-fallback';
+        hasReply: boolean;
+        runKey?: string;
     }
 
     let finalOrders: VirtualOrder[] = [];
@@ -177,6 +210,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
 
                 if (parentMsg) {
                     parentMsg.text += '\n' + msg.text;
+                    (parentMsg as any)._hasReplyContinuation = true;
                     msg.text = ''; // Очищаем: текст влился в родителя
                 }
             }
@@ -320,6 +354,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
             for (const block of rawBlocks) {
                 let header = '';
                 let textBody = block;
+                let headerSource: 'explicit' | 'chat-fallback' = 'chat-fallback';
                 let isSeparateBlock = false;
                 let separatePhrase = '';
 
@@ -405,8 +440,18 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                             rawHeader = rawHeader.replace(politeWords, ' '); // второй проход на случай подряд идущих слов
                             rawHeader = rawHeader.replace(/^[,.!\s]+|[,.!\s]+$/g, '').replace(/\s{2,}/g, ' ').trim();
                             
-                            header = rawHeader;
-                            textBody = textLines.join('\n').trim();
+                            headerSource = !chatConfig.shared_chat || isExplicitVenueHeader(rawHeader, chatConfig)
+                                ? 'explicit'
+                                : 'chat-fallback';
+                            if (headerSource === 'chat-fallback') {
+                                // Не выдаём случайную первую строку (например, приветствие)
+                                // за точку. Для резервного блока сохраняем исходный текст.
+                                header = cleanChatName;
+                                textBody = lines.join('\n').trim();
+                            } else {
+                                header = rawHeader;
+                                textBody = textLines.join('\n').trim();
+                            }
                             
                             if (chatConfig.prefix_brand) {
                                 header = `${cleanChatName} ${header}`;
@@ -444,7 +489,9 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                     text: textBody,
                     time: msg.time,
                     sender: msg.sender,
-                    chatName: orderBlock.chatName
+                    chatName: orderBlock.chatName,
+                    headerSource,
+                    hasReply: Boolean(msg.replyTo || (msg as any)._hasReplyContinuation)
                 });
             }
         }
@@ -471,12 +518,39 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         linkedOrders.push(vo);
     }
 
+    // Для общих чатов объединяем только соседние резервные сообщения одного отправителя.
+    // Явно названные точки и цитаты разрывают серию.
+    let runCounter = 0;
+    let previousRunOrder: VirtualOrder | undefined;
+    for (const vo of linkedOrders) {
+        const chatConfig = findChatConfig(vo.chatName);
+        const isSeparate = vo.header.toLowerCase().includes('отдельно') || vo.text.toLowerCase().includes('отдельной накладной');
+        const senderKey = vo.sender.trim().toLowerCase();
+        const previousSenderKey = previousRunOrder?.sender.trim().toLowerCase() || '';
+        const canContinue = Boolean(
+            chatConfig.shared_chat === true &&
+            vo.headerSource === 'chat-fallback' &&
+            !vo.hasReply &&
+            !isSeparate &&
+            previousRunOrder &&
+            previousRunOrder.chatName === vo.chatName &&
+            previousRunOrder.headerSource === 'chat-fallback' &&
+            !previousRunOrder.hasReply &&
+            senderKey &&
+            senderKey === previousSenderKey &&
+            previousRunOrder.runKey
+        );
+        vo.runKey = canContinue ? previousRunOrder!.runKey : `fallback-run-${runCounter++}`;
+        previousRunOrder = vo;
+    }
+
     // --- ЭТАП 3: Группировка (merge_same_spot) ---
     interface GroupedOrder {
         header: string;
         chatName: string;
         sender: string;
         blocks: { time: string, text: string }[];
+        runKey?: string;
     }
     const groupedOrders: GroupedOrder[] = [];
     
@@ -485,16 +559,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         
         const isSeparate = vo.header.toLowerCase().includes('отдельно') || vo.text.toLowerCase().includes('отдельной накладной');
         
-        let chatConfig: any = {};
-        for (const platform of Object.values(configData)) {
-            if ((platform as any).chats) {
-                const f = (platform as any).chats.find((c: any) => c.name === vo.chatName);
-                if (f) {
-                    chatConfig = f;
-                    break;
-                }
-            }
-        }
+        const chatConfig = findChatConfig(vo.chatName);
         
         if (chatConfig.merge_same_spot === false) {
             mergeSetting = false;
@@ -502,7 +567,13 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
 
         let existing = null;
         if (!isSeparate) {
-            if (chatConfig.merge_by_sender) {
+            if (chatConfig.shared_chat === true) {
+                if (vo.headerSource === 'explicit' && !vo.hasReply && mergeSetting) {
+                    existing = groupedOrders.find(g => g.header === vo.header && g.chatName === vo.chatName);
+                } else if (vo.headerSource === 'chat-fallback' && !vo.hasReply && vo.runKey) {
+                    existing = groupedOrders.find(g => g.runKey === vo.runKey && g.chatName === vo.chatName);
+                }
+            } else if (chatConfig.merge_by_sender) {
                 // Объединяем по отправителю: один человек — один блок, разные люди — разные блоки
                 existing = groupedOrders.find(g => g.sender === vo.sender && g.chatName === vo.chatName);
             } else if (mergeSetting) {
@@ -518,7 +589,8 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                 header: vo.header,
                 chatName: vo.chatName,
                 sender: vo.sender,
-                blocks: [{ time: vo.time, text: vo.text }]
+                blocks: [{ time: vo.time, text: vo.text }],
+                runKey: vo.runKey
             });
         }
     }

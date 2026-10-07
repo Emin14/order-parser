@@ -1,4 +1,4 @@
-import { BrowserContext } from 'playwright';
+import { BrowserContext, Page } from 'playwright';
 import { OrderResult, MessageItem } from '../types';
 import { checkOrderDate, getBannerDateCategory, isMessageActual } from '../utils/date';
 
@@ -76,12 +76,16 @@ function processRawItems(items: any[]): any[] {
             for (const c of candidates) {
                 if (isPhoneNum(c)) {
                     currentPhone = c;
-                } else {
+                } else if (!currentSender) {
                     currentSender = c;
                 }
             }
-            lastPhone = currentPhone;
-            lastSender = currentSender;
+            // В WhatsApp у следующих подряд сообщений имя автора часто отсутствует,
+            // а номер остаётся. Не затираем последнего известного отправителя пустым значением.
+            if (currentPhone) lastPhone = currentPhone;
+            else currentPhone = lastPhone;
+            if (currentSender) lastSender = currentSender;
+            else currentSender = lastSender;
         } else {
             currentPhone = lastPhone;
             currentSender = lastSender;
@@ -152,6 +156,40 @@ function filterActualMessages(items: any[], chatDateFallback: string = ''): Mess
     return validMessages;
 }
 
+async function logWhatsAppState(page: Page, label: string): Promise<void> {
+    try {
+        const selectors = [
+            '[data-testid^="list-item-"]',
+            '[data-testid="list-item"]',
+            '#pane-side [role="listitem"]',
+            '#pane-side [role="gridcell"]',
+            '[aria-label="Chat list"] [role="listitem"]',
+        ];
+        console.log(`🕵️ [WhatsApp spy] ${label}`);
+        console.log(`   URL: ${page.url()}`);
+        console.log(`   Заголовок: ${await page.title().catch(() => '(не прочитан)')}`);
+        for (const selector of selectors) {
+            const locator = page.locator(selector);
+            console.log(`   ${selector}: всего ${await locator.count().catch(() => 0)}`);
+        }
+        const controls = await page.evaluate(() => Array.from(document.querySelectorAll('button'))
+            .filter(button => (button.textContent || '').includes('Заказы') || button.id === 'additional-filters')
+            .slice(0, 10)
+            .map(button => ({
+                text: (button.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+                id: button.id || '',
+                testid: button.getAttribute('data-testid') || '',
+                role: button.getAttribute('role') || '',
+                selected: button.getAttribute('aria-selected') || '',
+                checked: button.getAttribute('aria-checked') || '',
+                visible: !!(button.offsetWidth || button.offsetHeight || button.getClientRects().length),
+            })));
+        console.log('   Кнопки фильтра:', JSON.stringify(controls));
+    } catch (error) {
+        console.log('   ⚠️ Spy не смог прочитать состояние:', error instanceof Error ? error.message : String(error));
+    }
+}
+
 export async function parseWhatsApp(context: BrowserContext): Promise<OrderResult[]> {
     console.log('🔍 [WhatsApp] Ищем вкладку WhatsApp...');
     await new Promise(r => setTimeout(r, 2000));
@@ -174,10 +212,68 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
         await activateTab(page);
     }
 
+    // При первом открытии WhatsApp Web интерфейс может появиться позже, чем страница.
+    // Ждём рабочую панель фильтров, чтобы не пытаться нажать на ещё пустой DOM.
+    const filterUi = page.locator('#additional-filters, [data-testid="filter-button"], button[title="Заказы"]');
+    try {
+        await filterUi.first().waitFor({ state: 'visible', timeout: 30000 });
+    } catch (error) {
+        await logWhatsAppState(page, 'интерфейс фильтров не появился за 30 секунд');
+        throw new Error('WhatsApp Web не загрузил рабочий интерфейс. Проверьте вход в аккаунт и интернет-соединение, затем повторите запуск.');
+    }
+
+    await logWhatsAppState(page, 'до выбора фильтра');
     console.log('⚙️ [WhatsApp] Применяем фильтр "Заказы"...');
-    await page.locator('#additional-filters').click();
-    await page.getByRole('menuitemcheckbox', { name: 'Заказы' }).click();
-    await page.waitForTimeout(2000); 
+
+    // WhatsApp показывает фильтр по-разному: на широком экране он сразу
+    // является вкладкой, а на узком прячется в меню дополнительных фильтров.
+    async function clickFirstVisible(locators: any[]): Promise<boolean> {
+        for (const locator of locators) {
+            const count = await locator.count().catch(() => 0);
+            for (let i = 0; i < count; i++) {
+                const item = locator.nth(i);
+                if (await item.isVisible().catch(() => false)) {
+                    const ariaSelected = await item.getAttribute('aria-selected').catch(() => null);
+                    const ariaChecked = await item.getAttribute('aria-checked').catch(() => null);
+                    if (ariaSelected === 'true' || ariaChecked === 'true') return true;
+                    await item.click();
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    const directFilterClicked = await clickFirstVisible([
+        page.locator('[data-testid="filter-button"] button').filter({ hasText: /^\s*Заказы(?:\s*\d+)?\s*$/ }),
+        page.locator('button[id^="label_item_"]').filter({ hasText: /^\s*Заказы(?:\s*\d+)?\s*$/ }),
+        page.locator('button[title="Заказы"]'),
+        page.getByRole('tab', { name: /^Заказы(?:\s*\d+)?$/ }).first(),
+    ]);
+
+    if (!directFilterClicked) {
+        const compactFilterOpened = await clickFirstVisible([
+            page.locator('#additional-filters'),
+            page.getByRole('tab').filter({ has: page.locator('#additional-filters') }),
+        ]);
+        if (!compactFilterOpened) {
+            throw new Error('WhatsApp: не найдена кнопка фильтров на текущей ширине окна.');
+        }
+
+        const menuFilterClicked = await clickFirstVisible([
+            page.getByRole('menuitemcheckbox', { name: 'Заказы', exact: true }),
+            page.getByRole('menuitem', { name: 'Заказы', exact: true }),
+            page.locator('[role="menu"] button').filter({ hasText: /^\s*Заказы\s*$/ }),
+            page.locator('[role="menu"] [role="button"]').filter({ hasText: /^\s*Заказы\s*$/ }),
+        ]);
+        if (!menuFilterClicked) {
+            throw new Error('WhatsApp: меню фильтров открыто, но пункт «Заказы» не найден.');
+        }
+    }
+
+    await page.waitForTimeout(2000);
+    await logWhatsAppState(page, 'после выбора фильтра');
+    console.log(`🕵️ [WhatsApp spy] Основной селектор чатов: ${await page.locator('[data-testid^="list-item-"]').count().catch(() => 0)}`);
     
     const allVisibleChats = page.locator('[data-testid^="list-item-"]');
     await allVisibleChats.first().waitFor({ state: 'visible' });
