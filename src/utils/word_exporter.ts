@@ -28,7 +28,7 @@ function stripGreetings(text: string): string {
     const greetingsRegex = /^\s*(здравствуйте|добры[йя]\s*[,]?[ \s]*(день|вечер|ночь|утро)|доброе\s*(утро)?|доброй\s*(ночи)?|приветствую|привет)[!,.\s:;]*/i;
     
     // 2. Убираем вводные фразы типа "примите заказ" ТОЛЬКО в начале сообщения
-    const orderIntroRegex = /^\s*(?:прошу\s+принять\s+(?:заказ|заявку)|прими(?:те)?\s+(?:заказ|заявку)|пожалуйста|на\s+сегодня|заказ|заявка)[!,.\s:;]*/i;
+    const orderIntroRegex = /^\s*(?:прошу\s+принять\s+(?:заказ|заявку)|прими(?:те)?\s+(?:заказ|заявку)|пожалуйста|заказ|заявка)[!,.\s:;]*/i;
     
     // Прогоняем несколько раз, чтобы удалить цепочки (например, "Здравствуйте! примите заказ пожалуйста на сегодня")
     let prev = '';
@@ -116,18 +116,9 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
             const names = [branch.name, ...(branch.aliases || [])].filter(Boolean);
             if (names.some((name: string) => clean.includes(String(name).toLowerCase()))) return true;
         }
-
-        // Адрес, номер филиала, юрлицо или явно похожее название точки.
-        if (/\d/.test(clean) || /(ип|ооо|зао|ао|ул\.?|улица|проспект|шоссе|дом|плаза|кафе|бар|ресторан|пиццер|восток)/i.test(clean)) {
-            return true;
-        }
-
-        const generic = new Set([
-            'да', 'нет', 'ок', 'хорошо', 'спасибо', 'пожалуйста', 'добрый день', 'добрый вечер',
-            'доброе утро', 'здравствуйте', 'привет', 'на завтра', 'добавка', 'дозаказ'
-        ]);
-        const words = clean.split(/\s+/).filter(Boolean);
-        return words.length <= 4 && !generic.has(clean);
+        // Для всех общих чатов без совпадения в branches строка остаётся
+        // резервным текстом и не объявляется филиалом по цифрам или товарам.
+        return false;
     }
 
     // --- Фильтр «добора»: оставляем только сообщения после fromTime ---
@@ -164,9 +155,11 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         text: string;
         time: string;
         sender: string;
+        phone: string;
         chatName: string;
         headerSource: 'explicit' | 'chat-fallback';
         hasReply: boolean;
+        isBranchHeader: boolean;
         runKey?: string;
     }
 
@@ -489,9 +482,15 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                     text: textBody,
                     time: msg.time,
                     sender: msg.sender,
+                    phone: msg.phone || '',
                     chatName: orderBlock.chatName,
                     headerSource,
-                    hasReply: Boolean(msg.replyTo || (msg as any)._hasReplyContinuation)
+                    hasReply: Boolean(msg.replyTo || (msg as any)._hasReplyContinuation),
+                    isBranchHeader: Boolean(
+                        isSeparateBlock ||
+                        /\b(бар|кухн(?:я|ю)|отдельно)\b/i.test(header) ||
+                        ((chatConfig.branches || []).length > 0 && isExplicitVenueHeader(header, chatConfig))
+                    )
                 });
             }
         }
@@ -518,23 +517,19 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         linkedOrders.push(vo);
     }
 
-    // Для общих чатов объединяем только соседние резервные сообщения одного отправителя.
-    // Явно названные точки и цитаты разрывают серию.
+    // Объединяем только соседние сообщения одного отправителя.
+    // Явно названные точки, бар/кухня, «Отдельно» и цитаты разрывают серию.
     let runCounter = 0;
     let previousRunOrder: VirtualOrder | undefined;
     for (const vo of linkedOrders) {
-        const chatConfig = findChatConfig(vo.chatName);
-        const isSeparate = vo.header.toLowerCase().includes('отдельно') || vo.text.toLowerCase().includes('отдельной накладной');
-        const senderKey = vo.sender.trim().toLowerCase();
-        const previousSenderKey = previousRunOrder?.sender.trim().toLowerCase() || '';
+        const senderKey = (vo.phone || vo.sender).trim().toLowerCase();
+        const previousSenderKey = previousRunOrder ? (previousRunOrder.phone || previousRunOrder.sender).trim().toLowerCase() : '';
         const canContinue = Boolean(
-            chatConfig.shared_chat === true &&
-            vo.headerSource === 'chat-fallback' &&
+            !vo.isBranchHeader &&
             !vo.hasReply &&
-            !isSeparate &&
             previousRunOrder &&
             previousRunOrder.chatName === vo.chatName &&
-            previousRunOrder.headerSource === 'chat-fallback' &&
+            !previousRunOrder.isBranchHeader &&
             !previousRunOrder.hasReply &&
             senderKey &&
             senderKey === previousSenderKey &&
@@ -549,6 +544,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         header: string;
         chatName: string;
         sender: string;
+        phone: string;
         blocks: { time: string, text: string }[];
         runKey?: string;
     }
@@ -567,7 +563,9 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
 
         let existing = null;
         if (!isSeparate) {
-            if (chatConfig.shared_chat === true) {
+            if (vo.runKey && !vo.isBranchHeader && !vo.hasReply) {
+                existing = groupedOrders.find(g => g.runKey === vo.runKey && g.chatName === vo.chatName);
+            } else if (chatConfig.shared_chat === true) {
                 if (vo.headerSource === 'explicit' && !vo.hasReply && mergeSetting) {
                     existing = groupedOrders.find(g => g.header === vo.header && g.chatName === vo.chatName);
                 } else if (vo.headerSource === 'chat-fallback' && !vo.hasReply && vo.runKey) {
@@ -589,6 +587,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                 header: vo.header,
                 chatName: vo.chatName,
                 sender: vo.sender,
+                phone: vo.phone,
                 blocks: [{ time: vo.time, text: vo.text }],
                 runKey: vo.runKey
             });
