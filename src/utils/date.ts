@@ -83,18 +83,16 @@ export function parseVkDate(dateRaw: string): CheckOrderResult {
         const unit = relativeShort[2].toLowerCase();
         const elapsedMinutes = unit === 'м' ? amount : unit === 'ч' ? amount * 60 : amount * 24 * 60;
         const messageAt = new Date(now.getTime() - elapsedMinutes * 60 * 1000);
-        const sameDay = messageAt.toDateString() === now.toDateString();
-        const messageHour = messageAt.getHours();
-
-        if (sameDay) {
-            if (mode === 'EVENING_NIGHT' && now.getHours() >= 18 && messageHour < 6) {
-                return { isActual: false, dateStr: text, reason: `Относительная дата VK (${text}), сегодня до 06:00` };
-            }
-            return { isActual: true, dateStr: text, reason: `Относительная дата VK (${text}), сегодня` };
-        }
-
-        if (mode === 'DAY' && messageHour >= 6) {
-            return { isActual: true, dateStr: text, reason: `Относительная дата VK (${text}), вчера после 06:00` };
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const time = `${String(messageAt.getHours()).padStart(2, '0')}:${String(messageAt.getMinutes()).padStart(2, '0')}`;
+        // Используем те же правила смены, что и для полных дат VK.
+        // В частности, после полуночи вчерашний вечер всё ещё входит в смену.
+        const dayLabel = messageAt.toDateString() === now.toDateString() ? 'сегодня'
+            : messageAt.toDateString() === yesterday.toDateString() ? 'вчера' : null;
+        if (dayLabel) {
+            const result = parseVkDate(`${dayLabel} в ${time}`);
+            return { ...result, dateStr: text, reason: `Относительная дата VK (${text}): ${result.reason}` };
         }
         return { isActual: false, dateStr: text, reason: `Относительная дата VK (${text}), вне текущей смены` };
     }
