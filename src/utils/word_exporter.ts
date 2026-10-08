@@ -231,14 +231,22 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
 
             let rawBlocks = [msg.text];
             
-            // Если в тексте прямо сказано "Заказ бар:" и "Заказ кухня:"
-            if (msg.text.match(/Заказ бар:/i) && msg.text.match(/Заказ кухня:/i)) {
-                const parts = msg.text.split(/Заказ кухня:/i);
-                let b1 = parts[0].trim();
-                if (b1.toLowerCase().includes('заказ бар:')) {
-                    b1 = b1.replace(/Заказ бар:/i, 'бар:\n');
+            // Разделяем бар и кухню, если они явно указаны в одном сообщении.
+            // Старый формат «Заказ бар: / Заказ кухня:» сохраняется для всех чатов.
+            // Флаг split_bar_kitchen добавляет такой режим для обычных заголовков «бар: / кухня:».
+            const hasLegacyBarKitchen = msg.text.match(/Заказ бар:/i) && msg.text.match(/Заказ кухня:/i);
+            const barKitchenHeader = /^\s*(?:(?:заказ|на)\s+)?(бар|кухня)\s*:?\s*$/gim;
+            const headings = [...msg.text.matchAll(barKitchenHeader)];
+            if (hasLegacyBarKitchen || (chatConfig.split_bar_kitchen === true && headings.length >= 2)) {
+                const barHeading = headings.find(h => h[1].toLowerCase() === 'бар');
+                const kitchenHeading = headings.find(h => h[1].toLowerCase() === 'кухня');
+                if (barHeading && kitchenHeading && barHeading.index !== undefined && kitchenHeading.index !== undefined) {
+                    const firstHeading = barHeading.index < kitchenHeading.index ? barHeading : kitchenHeading;
+                    const secondHeading = firstHeading === barHeading ? kitchenHeading : barHeading;
+                    const firstBlock = msg.text.slice(firstHeading.index, secondHeading.index).trim();
+                    const secondBlock = msg.text.slice(secondHeading.index).trim();
+                    rawBlocks = [firstBlock, secondBlock];
                 }
-                rawBlocks = [b1, "кухня:\n" + parts[1].trim()];
             }
             // Разделение по слову "Отдельно" внутри текста (глобально, для всех вхождений)
             const regex = /(\n\s*(?:Отдельной\s+накладной|Отдельным\s+чеком|Отдельно)[^\n]*)/gi;

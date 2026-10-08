@@ -73,6 +73,15 @@
               "кондитерка",
               "кондитерку"
             ]
+          },
+          {
+            "name": "Грузинка",
+            "aliases": [
+              "грузинка",
+              "грузинку",
+              "грузинскую",
+              "грузинке"
+            ]
           }
         ],
         "use_branch_name": true
@@ -347,7 +356,23 @@
         "name": "Овощи Скетч и Верде",
         "enabled": true,
         "shared_chat": true,
-        "merge_same_spot": false
+        "use_branch_name": true,
+        "branches": [
+          {
+            "name": "Скетч",
+            "aliases": [
+              "скетч",
+              "скейч"
+            ]
+          },
+          {
+            "name": "Верде",
+            "aliases": [
+              "верде"
+            ]
+          }
+        ],
+        "split_bar_kitchen": true
       },
       {
         "name": "ФОБО Плаза овощи",
