@@ -163,6 +163,7 @@
         "enabled": true,
         "shared_chat": true,
         "merge_same_spot": false,
+        "allow_unlisted_headers": true,
         "branches": [
           {
             "name": "Ип трубицина",
@@ -221,6 +222,13 @@
             "name": "Семинарская",
             "aliases": [
               "семинарская"
+            ]
+          },
+          {
+            "name": "Мейт",
+            "aliases": [
+              "мейт",
+              "мейт:"
             ]
           }
         ]
@@ -297,7 +305,10 @@
           {
             "name": "Восток 62",
             "aliases": [
-              "восток 62"
+              "восток 62",
+              "воток 62",
+              "восток62",
+              "воток62"
             ]
           },
           {
@@ -388,7 +399,8 @@
         "name": "Работа !!!!!!!!!",
         "enabled": true,
         "shared_chat": true,
-        "merge_same_spot": false
+        "merge_same_spot": false,
+        "allow_unlisted_headers": true
       }
     ]
   }

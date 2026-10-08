@@ -272,13 +272,11 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                         let isBranchStart = false;
                         let matchedBranchName: string | null = null;
                         const lowLine = line.trim().toLowerCase();
-                        if (lowLine.split(' ').length <= 6) {
-                            for (const branch of chatConfig.branches) {
-                                if (branch.aliases.some((a: string) => lowLine.includes(a.toLowerCase()))) {
-                                    isBranchStart = true;
-                                    matchedBranchName = branch.name;
-                                    break;
-                                }
+                        for (const branch of chatConfig.branches) {
+                            if (branch.aliases.some((a: string) => lowLine.includes(a.toLowerCase()))) {
+                                isBranchStart = true;
+                                matchedBranchName = branch.name;
+                                break;
                             }
                         }
                         if (isBranchStart) {
@@ -391,7 +389,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                             
                             if (i === 0) {
                                 const blacklist = ['адам', 'сегодняшнюю', 'завтрашнюю', 'спасибо', 'пожалуйста', 'ок', 'хорошо', 'да', 'нет', 'на завтра', 'добавьте', 'добавка', 'дозаказ', 'в плазу', 'ребят', 'ребята', 'девчат', 'девочки', 'коллеги', 'подскажите', 'вопрос', 'внимание'];
-                                if (!blacklist.includes(cleanForCheck) && !isProductLine(line)) {
+                                if (chatConfig.allow_unlisted_headers === true || (!blacklist.includes(cleanForCheck) && !isProductLine(line))) {
                                     let h = line;
                                     if (h.endsWith(':')) h = h.slice(0, -1).trim();
                                     headerParts.push(h);
@@ -441,7 +439,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                             rawHeader = rawHeader.replace(politeWords, ' '); // второй проход на случай подряд идущих слов
                             rawHeader = rawHeader.replace(/^[,.!\s]+|[,.!\s]+$/g, '').replace(/\s{2,}/g, ' ').trim();
                             
-                            headerSource = !chatConfig.shared_chat || isExplicitVenueHeader(rawHeader, chatConfig)
+                            headerSource = !chatConfig.shared_chat || chatConfig.allow_unlisted_headers === true || isExplicitVenueHeader(rawHeader, chatConfig)
                                 ? 'explicit'
                                 : 'chat-fallback';
                             if (headerSource === 'chat-fallback') {
@@ -497,6 +495,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                     isBranchHeader: Boolean(
                         isSeparateBlock ||
                         /\b(бар|кухн(?:я|ю)|отдельно)\b/i.test(header) ||
+                        headerSource === 'explicit' ||
                         ((chatConfig.branches || []).length > 0 && isExplicitVenueHeader(header, chatConfig))
                     )
                 });
@@ -530,9 +529,11 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
     let runCounter = 0;
     let previousRunOrder: VirtualOrder | undefined;
     for (const vo of linkedOrders) {
+        const voChatConfig = findChatConfig(vo.chatName);
         const senderKey = (vo.phone || vo.sender).trim().toLowerCase();
         const previousSenderKey = previousRunOrder ? (previousRunOrder.phone || previousRunOrder.sender).trim().toLowerCase() : '';
         const canContinue = Boolean(
+            voChatConfig.allow_unlisted_headers !== true &&
             !vo.isBranchHeader &&
             !vo.hasReply &&
             previousRunOrder &&
