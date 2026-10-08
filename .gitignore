@@ -6,3 +6,6 @@ vk_dom_dump.html
 .env
 /Браузер — Заказы.lnk
 /order-parser-profile/
+# Local parser output and collected orders
+orders.json
+*.docx
