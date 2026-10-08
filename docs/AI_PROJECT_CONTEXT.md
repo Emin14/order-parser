@@ -26,7 +26,10 @@
 
 - `5af891c` — исправлено распознавание относительных VK-дат после полуночи; добавлен `tests/vk-midnight.test.cjs`.
 - `d501b5a` — добавлены филиалы «Грузинка», «Скетч», «Верде», флаг `split_bar_kitchen` и логика разделения бара и кухни; обновлён `docs/chat-flags.html`.
-- `e955739` — добавлен этот контекст проекта и история решений.
+- `e955739` и `5773f33` — добавлена и синхронизирована документация для ИИ.
+- `48cb17f` — сохранены отдельные правила для незарегистрированных заголовков и расширены варианты алиасов филиалов.
+- `895b0c8` — обновлён набор sample orders.
+- `1d5e0c8` — нормализованы метаданные `package-lock.json`.
 
 Эти изменения уже находятся в Git. При следующей правке проверяйте, не противоречит ли она этим коммитам и текущей конфигурации.
 
@@ -43,6 +46,62 @@
 ## Полная история коммитов
 
 Формат: `дата — commit — автор — сообщение`; список файлов показывает область изменения. Если нужно понять мотивацию глубже, открывайте diff указанного коммита.
+
+### 2026-10-09 · `1d5e0c8` · chore: normalize package lock metadata
+
+- Автор: Эмин
+- Цель по сообщению коммита: chore: normalize package lock metadata
+- Изменённые файлы: `package-lock.json`
+- Статистика: 1 file changed, 2 deletions(-)
+- Проверка для ИИ: перед повторением этого решения сравнить текущий код с `git show 1d5e0c8` и проверить, не появился ли позднее `revert` или исправляющий коммит.
+
+### 2026-10-09 · `895b0c8` · data: refresh sample order set
+
+- Автор: Эмин
+- Цель по сообщению коммита: data: refresh sample order set
+- Изменённые файлы: `orders.json`
+- Статистика: 1 file changed, 416 insertions(+), 303 deletions(-)
+- Проверка для ИИ: перед повторением этого решения сравнить текущий код с `git show 895b0c8` и проверить, не появился ли позднее `revert` или исправляющий коммит.
+
+### 2026-10-09 · `48cb17f` · fix: preserve unlisted headers and branch aliases
+
+- Автор: Эмин
+- Цель по сообщению коммита: fix: preserve unlisted headers and branch aliases
+- Изменённые файлы: `cafes_config.json`, `src/utils/word_exporter.ts`
+- Статистика: 2 files changed, 24 insertions(+), 11 deletions(-)
+- Проверка для ИИ: перед повторением этого решения сравнить текущий код с `git show 48cb17f` и проверить, не появился ли позднее `revert` или исправляющий коммит.
+
+### 2026-10-09 · `5773f33` · docs: sync AI context with committed changes
+
+- Автор: Эмин
+- Цель по сообщению коммита: docs: sync AI context with committed changes
+- Изменённые файлы: `docs/AI_PROJECT_CONTEXT.md`
+- Статистика: 1 file changed, 6 insertions(+), 5 deletions(-)
+- Проверка для ИИ: перед повторением этого решения сравнить текущий код с `git show 5773f33` и проверить, не появился ли позднее `revert` или исправляющий коммит.
+
+### 2026-10-09 · `e955739` · docs: add AI project context and decision history
+
+- Автор: Эмин
+- Цель по сообщению коммита: docs: add AI project context and decision history
+- Изменённые файлы: `README.md`, `docs/AI_PROJECT_CONTEXT.md`
+- Статистика: 2 files changed, 533 insertions(+)
+- Проверка для ИИ: перед повторением этого решения сравнить текущий код с `git show e955739` и проверить, не появился ли позднее `revert` или исправляющий коммит.
+
+### 2026-10-09 · `d501b5a` · feat: configure chat branches and bar kitchen splitting
+
+- Автор: Эмин
+- Цель по сообщению коммита: feat: configure chat branches and bar kitchen splitting
+- Изменённые файлы: `cafes_config.json`, `docs/chat-flags.html`, `src/utils/word_exporter.ts`
+- Статистика: 3 files changed, 47 insertions(+), 8 deletions(-)
+- Проверка для ИИ: перед повторением этого решения сравнить текущий код с `git show d501b5a` и проверить, не появился ли позднее `revert` или исправляющий коммит.
+
+### 2026-10-09 · `5af891c` · fix: keep VK relative dates across midnight
+
+- Автор: Эмин
+- Цель по сообщению коммита: fix: keep VK relative dates across midnight
+- Изменённые файлы: `src/utils/date.ts`, `tests/vk-midnight.test.cjs`
+- Статистика: 2 files changed, 48 insertions(+), 12 deletions(-)
+- Проверка для ИИ: перед повторением этого решения сравнить текущий код с `git show 5af891c` и проверить, не появился ли позднее `revert` или исправляющий коммит.
 
 ### 2026-10-08 · `d47ff2f` · test: avoid sandbox rename in profile portability check
 
