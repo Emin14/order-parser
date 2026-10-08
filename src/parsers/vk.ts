@@ -123,6 +123,10 @@ function extractVkElementsFromDom(): any[] {
             }
         } else {
             const el = item.el;
+            // VK хранит стабильный ключ верхнеуровневого сообщения на VirtualScrollItem.
+            // Он сохраняется при виртуальной перерисовке и не зависит от текста/автора.
+            const messageContainer = el.closest('[data-itemkey]') as HTMLElement | null;
+            const messageId = messageContainer?.getAttribute('data-itemkey') || el.getAttribute('data-itemkey') || '';
             const authorEl = el.querySelector('.PeerTitle__title, .ConvoMessageHeader__authorLink, [class*="authorLink"]');
             const textEl = el.querySelector('.MessageText, [class*="Message__text"]');
             const timeEl = el.querySelector('.ConvoMessageInfoWithoutBubbles__date, [class*="date"], [class*="time"], [class*="Time"], time');
@@ -187,6 +191,7 @@ function extractVkElementsFromDom(): any[] {
             if (cleanText.trim()) {
                 const msgObj: any = {
                     type: 'message',
+                    messageId,
                     sender: authorEl ? (authorEl.textContent || '').trim() : '',
                     time: timeStr,
                     text: cleanText.trim(),
@@ -347,7 +352,14 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
         
         for (let i = items.length - 1; i >= 0; i--) {
             const item = items[i];
-            const key = item.type === 'message' && item.text ? `${item.sender}_${item.time}_${item.text}` : `banner_${item.text}`;
+            const normalizedText = item.type === 'message' && item.text
+                ? String(item.text).replace(/\s+/g, ' ').trim()
+                : '';
+            const key = item.type === 'message' && item.text
+                ? (item.messageId
+                    ? `message-id:${item.messageId}`
+                    : `fallback:${item.sender}_${item.time}_${normalizedText}`)
+                : `banner_${item.text}`;
             if (!key) continue;
             
             const existingIdx = masterList.findIndex(x => x.key === key);
