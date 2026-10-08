@@ -34,8 +34,9 @@ test('dotenv strips both quote styles; old settings cannot change the shared pro
 test('profile follows the project when it moves', (t) => {
     const { projectRoot, browserPath } = fixture(t);
     fs.writeFileSync(path.join(projectRoot, '.env'), `BROWSER_PATH='${browserPath}'`);
-    const movedRoot = projectRoot + '-moved';
-    fs.renameSync(projectRoot, movedRoot);
+    const movedRoot = path.join(path.dirname(projectRoot), 'Перенесенный проект');
+    fs.mkdirSync(movedRoot);
+    fs.copyFileSync(path.join(projectRoot, '.env'), path.join(movedRoot, '.env'));
     const config = loadBrowserConfig(movedRoot);
     assert.equal(config.userDataDir, path.join(movedRoot, 'order-parser-profile'));
     assert.equal(path.dirname(config.shortcutPath), movedRoot);
