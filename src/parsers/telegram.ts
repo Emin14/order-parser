@@ -1,6 +1,17 @@
 import { BrowserContext, Page } from 'playwright';
+import * as fs from 'fs';
+import * as path from 'path';
 import { OrderResult, MessageItem } from '../types';
 import { checkOrderDate, getBannerDateCategory, isMessageActual } from '../utils/date';
+
+const TELEGRAM_SPY_LOG = path.resolve(process.cwd(), 'telegram_spy.log');
+function telegramSpy(message: string): void {
+    try {
+        fs.appendFileSync(TELEGRAM_SPY_LOG, `[${new Date().toISOString()}] ${message}\n`);
+    } catch (error) {
+        console.warn('[Telegram spy] Не удалось записать лог:', error);
+    }
+}
 
 function filterActualTelegramMessages(items: any[], chatName: string, chatDateFallback: string = ''): MessageItem[] {
     let validMessages: MessageItem[] = [];
@@ -24,6 +35,7 @@ function filterActualTelegramMessages(items: any[], chatName: string, chatDateFa
     for (const item of items) {
         if (item.type === 'banner') {
             currentCategory = getBannerDateCategory(item.text);
+            telegramSpy(`FILTER_DATE chat=${JSON.stringify(chatName)} text=${JSON.stringify(item.text)} category=${currentCategory}`);
             lastSender = "";
             continue;
         }
@@ -38,6 +50,7 @@ function filterActualTelegramMessages(items: any[], chatName: string, chatDateFa
             }
             
             const isActual = isMessageActual(currentCategory, item.time, item.text);
+            telegramSpy(`FILTER chat=${JSON.stringify(chatName)} accepted=${isActual} category=${currentCategory} time=${JSON.stringify(item.time)} preview=${JSON.stringify(item.text.slice(0, 180))}`);
             
             if (isActual) {
                 const msg: any = {
@@ -63,11 +76,13 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
     await page.waitForTimeout(1500);
 
     console.log(`   📜 [Telegram] Прокручиваем историю [${fullChatName}] вверх...`);
+    telegramSpy(`START chat=${JSON.stringify(fullChatName)} listDate=${JSON.stringify(chatDateStr)}`);
     try { const view = page.viewportSize(); if (view) await page.mouse.move(view.width / 2, view.height / 2); } catch (e) {}
 
     let rawElementsData: any[] = [];
     let prevFirstText = '';
     let unchangedTop = 0;
+    let topStalls = 0;
 
     for (let step = 1; step <= 40; step++) {
         const cur = await page.evaluate(() => {
@@ -158,6 +173,7 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
             return results;
         });
 
+        telegramSpy(`SNAPSHOT chat=${JSON.stringify(fullChatName)} step=${step} items=${JSON.stringify(cur.map((item: any) => ({ type: item.type, time: item.time, sender: item.sender, preview: item.text.slice(0, 180) })))}`);
         // Слияние сверху-вниз
         let anchor = -1;
         for (let i = cur.length - 1; i >= 0; i--) {
@@ -181,7 +197,6 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
         const firstText = first ? first.time + first.text.slice(0, 30) : '';
         if (firstText && firstText === prevFirstText) {
             unchangedTop++;
-            if (unchangedTop >= 3) break;
         } else {
             unchangedTop = 0;
             prevFirstText = firstText;
@@ -189,6 +204,7 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
 
         let reachedBoundary = false;
         const banners = cur.filter((x: any) => x.type === 'banner');
+        telegramSpy(`STEP chat=${JSON.stringify(fullChatName)} step=${step} items=${cur.length} first=${JSON.stringify(firstText)} banners=${JSON.stringify(banners.map((b: any) => ({ text: b.text, category: getBannerDateCategory(b.text) })))} unchangedTop=${unchangedTop}`);
         for (const b of banners) {
             // Останавливаемся только если дата старше "позавчера" (т.е. 3+ дня назад)
             // Сегодня, вчера и позавчера (26, 27, 28) — продолжаем скроллить
@@ -201,19 +217,23 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
         console.log(`   🔎 [Telegram-DEBUG] Шаг ${step}: Найдено сообщений на экране: ${cur.length}, Первое сообщение: ${firstText}`);
 
         if (reachedBoundary) {
+            telegramSpy(`STOP chat=${JSON.stringify(fullChatName)} reason=older-banner step=${step}`);
             console.log(`   ⏹️ [Telegram] Достигнута граница даты (шаг ${step})`);
             break; 
         }
 
-        await page.evaluate(() => {
+        const scrollDiagnostic = await page.evaluate(() => {
             const msgs = document.querySelectorAll('.bubble-content, .message');
             let foundScroll = false;
+            let diagnostic: any = null;
             for (const msg of Array.from(msgs)) {
                 let p = msg.parentElement;
                 while (p && p !== document.body) {
                     const style = window.getComputedStyle(p);
                     if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && p.scrollHeight > p.clientHeight) {
+                        diagnostic = { tag: p.tagName, className: p.className, before: p.scrollTop, height: p.clientHeight, total: p.scrollHeight };
                         p.scrollBy(0, -800);
+                        diagnostic.after = p.scrollTop;
                         p.dispatchEvent(new Event('scroll', { bubbles: true }));
                         foundScroll = true;
                         break;
@@ -223,12 +243,35 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
                 if (foundScroll) break;
             }
             if (!foundScroll) window.scrollBy(0, -800);
+            return {
+                foundScroll,
+                diagnostic,
+                atTop: Boolean(diagnostic && diagnostic.after <= 2),
+                moved: Boolean(diagnostic && diagnostic.after < diagnostic.before),
+            };
         });
+        telegramSpy(`SCROLL chat=${JSON.stringify(fullChatName)} step=${step} state=${JSON.stringify(scrollDiagnostic)} wheel=-800`);
         await page.mouse.wheel(0, -800);
-        await page.waitForTimeout(600);
+        await page.waitForTimeout(scrollDiagnostic.atTop ? 1800 : 600);
+        if (!scrollDiagnostic.foundScroll || (scrollDiagnostic.diagnostic && !scrollDiagnostic.moved)) {
+            telegramSpy(`STOP chat=${JSON.stringify(fullChatName)} reason=scroll-boundary step=${step} state=${JSON.stringify(scrollDiagnostic)}`);
+            break;
+        }
+        if (scrollDiagnostic.atTop) {
+            topStalls++;
+            telegramSpy(`TOP_WAIT chat=${JSON.stringify(fullChatName)} step=${step} attempt=${topStalls}`);
+            if (topStalls >= 5) {
+                telegramSpy(`STOP chat=${JSON.stringify(fullChatName)} reason=top-load-stalled step=${step}`);
+                break;
+            }
+        } else {
+            topStalls = 0;
+        }
+        if (step === 40) telegramSpy(`STOP chat=${JSON.stringify(fullChatName)} reason=step-limit step=40`);
     }
 
     const filteredMessages = filterActualTelegramMessages(rawElementsData, fullChatName, chatDateStr);
+    telegramSpy(`END chat=${JSON.stringify(fullChatName)} collected=${rawElementsData.length} accepted=${filteredMessages.length}`);
     if (filteredMessages.length > 0) {
         return {
             messenger: 'Telegram',
@@ -240,6 +283,8 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
 }
 
 export async function parseTelegram(context: BrowserContext): Promise<OrderResult[]> {
+    telegramSpy(`RUN localTime=${new Date().toString()}`);
+    console.log(`🕵️ Диагностика Telegram: ${TELEGRAM_SPY_LOG}`);
     console.log('🔍 [Telegram] Ищем вкладку Telegram Web K...');
     await new Promise(r => setTimeout(r, 1000));
     

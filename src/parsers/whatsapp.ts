@@ -341,6 +341,17 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
             
             // Функция извлечения видимых элементов
             const extractCurrentView = async () => {
+                // WhatsApp обрезает длинные сообщения и добавляет кнопку
+                // «Далее». Раскрываем все такие сообщения до чтения текста.
+                const readMoreButtons = page.locator('[data-testid="caption-read-more-button"]');
+                const readMoreCount = await readMoreButtons.count().catch(() => 0);
+                for (let i = 0; i < readMoreCount; i++) {
+                    await readMoreButtons.nth(i).click({ force: true }).catch(() => {});
+                }
+                if (readMoreCount > 0) {
+                    await page.waitForTimeout(250);
+                }
+
                 return await page.evaluate(() => {
                     const main = document.querySelector('#main');
                     if (!main) return [];
@@ -466,6 +477,16 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                     return results;
                 });
             };
+
+            // При наличии разделителя «N непрочитанных сообщений» WhatsApp
+            // открывает чат на первом непрочитанном, а не внизу. Сначала
+            // переходим к последним сообщениям, иначе сообщения после
+            // разделителя никогда не попадут в текущий вид и не будут собраны.
+            await page.evaluate(() => {
+                const pane = document.querySelector('[data-testid="conversation-panel-messages"]') as HTMLElement | null;
+                if (pane) pane.scrollTop = pane.scrollHeight;
+            });
+            await page.waitForTimeout(1200);
 
             let allRawElements: any[] = [];
             const seenKeys = new Set<string>();
