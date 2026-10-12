@@ -162,7 +162,12 @@ function extractVkElementsFromDom(): any[] {
                     clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
                     const txt = (clone.innerText || clone.textContent || '').trim();
                     if (txt) {
-                        combinedText += (combinedText ? '\n---\n' : '') + txt;
+                        // Текст пересланного сообщения находится внутри того же
+                        // VK-сообщения. Разделитель `---` здесь ошибочно выдавал
+                        // его за отдельное сообщение в shared_chat.
+                        const isForwarded = Boolean(tNode.closest('.ForwardedMessageNew, [class*="ForwardedMessage"]'));
+                        const separator = !combinedText ? '' : (isForwarded ? '\n' : '\n---\n');
+                        combinedText += separator + txt;
                     }
                 }
                 cleanText = combinedText;
