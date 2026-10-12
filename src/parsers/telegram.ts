@@ -49,8 +49,11 @@ function filterActualTelegramMessages(items: any[], chatName: string, chatDateFa
                 lastSender = item.sender;
             }
             
-            const isActual = isMessageActual(currentCategory, item.time, item.text);
-            telegramSpy(`FILTER chat=${JSON.stringify(chatName)} accepted=${isActual} category=${currentCategory} time=${JSON.stringify(item.time)} preview=${JSON.stringify(item.text.slice(0, 180))}`);
+            const messageCategory = item.dateText
+                ? getBannerDateCategory(item.dateText)
+                : currentCategory;
+            const isActual = isMessageActual(messageCategory, item.time, item.text);
+            telegramSpy(`FILTER chat=${JSON.stringify(chatName)} accepted=${isActual} category=${messageCategory} time=${JSON.stringify(item.time)} preview=${JSON.stringify(item.text.slice(0, 180))}`);
             
             if (isActual) {
                 const msg: any = {
@@ -89,11 +92,13 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
             const container = document.querySelector('.bubbles, .messages-layout, #column-center') || document;
             const bubbles = Array.from(container.querySelectorAll('.bubble'));
             const results: any[] = [];
+            let currentDateText = '';
 
             for (const bubble of bubbles) {
                 if (bubble.classList.contains('is-date')) {
                     const svc = bubble.querySelector('.service-msg');
                     if (svc) {
+                        currentDateText = (svc as HTMLElement).innerText ? (svc as HTMLElement).innerText.trim() : '';
                         results.push({
                             type: 'banner',
                             text: (svc as HTMLElement).innerText ? (svc as HTMLElement).innerText.trim() : ''
@@ -165,7 +170,7 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
                         }
                     }
 
-                    const msgObj: any = { type: 'message', sender: nameEl ? (nameEl.textContent || '').trim() : '', time: extractedTime, text: text.trim() };
+                    const msgObj: any = { type: 'message', sender: nameEl ? (nameEl.textContent || '').trim() : '', time: extractedTime, text: text.trim(), dateText: currentDateText };
                     if (replyTo) msgObj.replyTo = replyTo;
                     results.push(msgObj);
                 }
@@ -202,24 +207,17 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
             prevFirstText = firstText;
         }
 
-        let reachedBoundary = false;
         const banners = cur.filter((x: any) => x.type === 'banner');
         telegramSpy(`STEP chat=${JSON.stringify(fullChatName)} step=${step} items=${cur.length} first=${JSON.stringify(firstText)} banners=${JSON.stringify(banners.map((b: any) => ({ text: b.text, category: getBannerDateCategory(b.text) })))} unchangedTop=${unchangedTop}`);
+        let reachedBoundary = false;
         for (const b of banners) {
-            // Останавливаемся только если дата старше "позавчера" (т.е. 3+ дня назад)
-            // Сегодня, вчера и позавчера (26, 27, 28) — продолжаем скроллить
-            const category = getBannerDateCategory(b.text);
-            if (category === 'older') {
-                reachedBoundary = true;
-            }
+            if (getBannerDateCategory(b.text) === 'older') reachedBoundary = true;
         }
-
         console.log(`   🔎 [Telegram-DEBUG] Шаг ${step}: Найдено сообщений на экране: ${cur.length}, Первое сообщение: ${firstText}`);
-
         if (reachedBoundary) {
             telegramSpy(`STOP chat=${JSON.stringify(fullChatName)} reason=older-banner step=${step}`);
             console.log(`   ⏹️ [Telegram] Достигнута граница даты (шаг ${step})`);
-            break; 
+            break;
         }
 
         const scrollDiagnostic = await page.evaluate(() => {
