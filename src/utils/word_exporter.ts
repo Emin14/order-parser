@@ -187,6 +187,18 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         // Восстанавливаем точку по цитируемому сообщению (replyTo)
         for (const msg of messages) {
             if (msg.replyTo && msg.replyTo.text) {
+                // Если исходный заказ уже отфильтрован по времени, сохраняем
+                // филиал из текста цитаты для корректного заголовка добавки.
+                const quotedHeader = (chatConfig.branches || []).find((branch: any) => {
+                    const quoted = msg.replyTo.text.toLowerCase();
+                    return [branch.name, ...(branch.aliases || [])]
+                        .filter(Boolean)
+                        .some((name: string) => quoted.includes(String(name).toLowerCase()));
+                });
+                if (quotedHeader) {
+                    (msg as any)._replyBranchHeader = quotedHeader.name;
+                }
+
                 // При любом ответе через кнопку «Ответить» — ищем родительское сообщение
                 // и вклеиваем текст ответа туда (добавка к заказу)
                 let replySnippet = msg.replyTo.text.replace(/\s+/g, ' ').replace(/\.+$/, '').trim();
@@ -483,6 +495,11 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                     header = `${header} ${separatePhrase}`;
                 }
 
+                if ((msg as any)._replyBranchHeader && msg.replyTo) {
+                    header = (msg as any)._replyBranchHeader;
+                    headerSource = 'explicit';
+                }
+
                 finalOrders.push({
                     header: header,
                     text: textBody,
@@ -494,6 +511,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                     hasReply: Boolean(msg.replyTo || (msg as any)._hasReplyContinuation),
                     isBranchHeader: Boolean(
                         isSeparateBlock ||
+                        ((msg as any)._replyBranchHeader && msg.replyTo) ||
                         /\b(бар|кухн(?:я|ю)|отдельно)\b/i.test(header) ||
                         headerSource === 'explicit' ||
                         ((chatConfig.branches || []).length > 0 && isExplicitVenueHeader(header, chatConfig))
@@ -538,7 +556,6 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
             !vo.hasReply &&
             previousRunOrder &&
             previousRunOrder.chatName === vo.chatName &&
-            !previousRunOrder.isBranchHeader &&
             !previousRunOrder.hasReply &&
             senderKey &&
             senderKey === previousSenderKey &&
@@ -580,7 +597,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                 } else if (vo.headerSource === 'chat-fallback' && !vo.hasReply && vo.runKey) {
                     existing = groupedOrders.find(g => g.runKey === vo.runKey && g.chatName === vo.chatName);
                 }
-            } else if (chatConfig.merge_by_sender) {
+            } else if (chatConfig.merge_by_sender && !vo.isBranchHeader) {
                 // Объединяем по отправителю: один человек — один блок, разные люди — разные блоки
                 existing = groupedOrders.find(g => g.sender === vo.sender && g.chatName === vo.chatName);
             } else if (mergeSetting) {

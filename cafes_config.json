@@ -188,6 +188,7 @@
         "name": "Ёлки закупка овощи/зелень",
         "enabled": true,
         "shared_chat": false,
+        "merge_by_sender": true,
         "branches": [
           {
             "name": "Разговоры",
