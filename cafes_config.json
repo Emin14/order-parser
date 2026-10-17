@@ -1,5 +1,11 @@
 {
   "vk": {
+    "admin_names": [
+      "Адам Агаев"
+    ],
+    "admin_excluded_chats": [
+      "Семья"
+    ],
     "filter_tab": "Заказы",
     "chats": [
       {
@@ -416,6 +422,12 @@
     ]
   },
   "telegram": {
+    "admin_names": [
+      "Асиман"
+    ],
+    "admin_excluded_chats": [
+      "Работа !!!!!!!!!"
+    ],
     "filter_tab": "Заказы",
     "chats": [
       {
