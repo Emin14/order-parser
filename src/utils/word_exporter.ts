@@ -100,6 +100,17 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
 
     const configData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
+    const platformAdminNames = (platform: string): Set<string> => new Set(
+        (Array.isArray(configData[platform] && configData[platform].admin_names) ? configData[platform].admin_names : [])
+            .map((name: unknown) => String(name).trim().toLocaleLowerCase('ru-RU'))
+            .filter(Boolean)
+    );
+    const platformAdminExcludedChats = (platform: string): Set<string> => new Set(
+        (Array.isArray(configData[platform] && configData[platform].admin_excluded_chats) ? configData[platform].admin_excluded_chats : [])
+            .map((name: unknown) => String(name).trim().toLocaleLowerCase('ru-RU'))
+            .filter(Boolean)
+    );
+
     function findChatConfig(chatName: string): any {
         for (const platform of Object.values(configData)) {
             const found = (platform as any).chats?.find((c: any) => c.name === chatName);
@@ -183,14 +194,20 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         if (messages.length === 0) continue;
 
         const cleanChatName = chatConfig.display_name || cleanBrandName(chatConfig.name);
+        const adminNames = platformAdminNames(messenger);
+        const adminExcludedChats = platformAdminExcludedChats(messenger);
+        const adminRulesEnabled = !adminExcludedChats.has(orderBlock.chatName.trim().toLocaleLowerCase('ru-RU'));
 
         // Восстанавливаем точку по цитируемому сообщению (replyTo)
-        for (const msg of messages) {
-            if (msg.replyTo && msg.replyTo.text) {
+        for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+            const msg = messages[messageIndex];
+            const replyTo = msg.replyTo;
+            if (replyTo && replyTo.text) {
+                const isAdminMessage = adminRulesEnabled && adminNames.has((msg.sender || '').trim().toLocaleLowerCase('ru-RU'));
                 // Если исходный заказ уже отфильтрован по времени, сохраняем
                 // филиал из текста цитаты для корректного заголовка добавки.
                 const quotedHeader = (chatConfig.branches || []).find((branch: any) => {
-                    const quoted = msg.replyTo.text.toLowerCase();
+                    const quoted = replyTo.text.toLowerCase();
                     return [branch.name, ...(branch.aliases || [])]
                         .filter(Boolean)
                         .some((name: string) => quoted.includes(String(name).toLowerCase()));
@@ -201,19 +218,29 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
 
                 // При любом ответе через кнопку «Ответить» — ищем родительское сообщение
                 // и вклеиваем текст ответа туда (добавка к заказу)
-                let replySnippet = msg.replyTo.text.replace(/\s+/g, ' ').replace(/\.+$/, '').trim();
+                let replySnippet = replyTo.text.replace(/\s+/g, ' ').replace(/\.+$/, '').trim();
                 if (replySnippet.length > 40) replySnippet = replySnippet.slice(0, 40);
 
                 // Сначала точное совпадение
-                let parentMsg = messages.find(m => m !== msg && m.text.replace(/\s+/g, ' ').includes(replySnippet));
+                // VK's reply preview does not always contain the original message id.
+                // Match the quoted text only against messages that precede the reply
+                // in the chronological list.  Otherwise a reply to yesterday's order
+                // can incorrectly attach to a similar order written later today.
+                let parentMsg = messages.find((m, candidateIndex) =>
+                    candidateIndex < messageIndex &&
+                    m.text.replace(/\s+/g, ' ').includes(replySnippet)
+                );
 
                 // Если не нашли — пробуем по первым 15 символам (мессенджеры обрезают превью цитаты)
                 if (!parentMsg && replySnippet.length > 15) {
                     const shortSnippet = replySnippet.slice(0, 15);
-                    parentMsg = messages.find(m => m !== msg && m.text.replace(/\s+/g, ' ').includes(shortSnippet));
+                    parentMsg = messages.find((m, candidateIndex) =>
+                        candidateIndex < messageIndex &&
+                        m.text.replace(/\s+/g, ' ').includes(shortSnippet)
+                    );
                 }
 
-                if (parentMsg) {
+                if (parentMsg && !isAdminMessage) {
                     parentMsg.text += '\n' + msg.text;
                     (parentMsg as any)._hasReplyContinuation = true;
                     msg.text = ''; // Очищаем: текст влился в родителя
@@ -400,7 +427,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                             const cleanForCheck = line.replace(/[:,]/g, '').trim().toLowerCase();
                             
                             if (i === 0) {
-                                const blacklist = ['адам', 'сегодняшнюю', 'завтрашнюю', 'спасибо', 'пожалуйста', 'ок', 'хорошо', 'да', 'нет', 'на завтра', 'добавьте', 'добавка', 'дозаказ', 'в плазу', 'ребят', 'ребята', 'девчат', 'девочки', 'коллеги', 'подскажите', 'вопрос', 'внимание'];
+                                const blacklist = ['адам', 'сегодняшнюю', 'завтрашнюю', 'спасибо', 'пожалуйста', 'ок', 'хорошо', 'да', 'нет', 'на завтра', 'добавьте', 'добавка', 'дозаказ', 'в плазу', 'ребят', 'ребята', 'девчат', 'девочки', 'коллеги', 'подскажите', 'вопрос', 'внимание', '+'];
                                 if (chatConfig.allow_unlisted_headers === true || (!blacklist.includes(cleanForCheck) && !isProductLine(line))) {
                                     let h = line;
                                     if (h.endsWith(':')) h = h.slice(0, -1).trim();
@@ -500,6 +527,16 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                     headerSource = 'explicit';
                 }
 
+                // Сообщения администратора VK выводятся отдельным блоком под его именем.
+                // Имя берём из самого сообщения, чтобы сохранить точное отображение VK.
+                const adminName = adminRulesEnabled && adminNames.has((msg.sender || '').trim().toLocaleLowerCase('ru-RU'))
+                    ? msg.sender.trim()
+                    : '';
+                if (adminName) {
+                    header = adminName;
+                    headerSource = 'explicit';
+                }
+
                 finalOrders.push({
                     header: header,
                     text: textBody,
@@ -508,7 +545,12 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                     phone: msg.phone || '',
                     chatName: orderBlock.chatName,
                     headerSource,
-                    hasReply: Boolean(msg.replyTo || (msg as any)._hasReplyContinuation),
+                    // A message that quotes another message is a reply itself and
+                    // must stay separate from the previous run.  The quoted parent
+                    // may also receive the reply text, but that retroactive marker
+                    // must not prevent the parent's next same-sender continuation
+                    // from joining the same order.
+                    hasReply: Boolean(msg.replyTo),
                     isBranchHeader: Boolean(
                         isSeparateBlock ||
                         ((msg as any)._replyBranchHeader && msg.replyTo) ||
@@ -682,10 +724,12 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         const hasMorning = !isSundayBatch && order.blocks.some(b => {
             if (!b.time) return false;
             const [hr] = b.time.split(':');
-            return hr && parseInt(hr, 10) < 15;
+            const hour = parseInt(hr, 10);
+            return hour >= 6 && hour < 15;
         });
 
         const finalTextBlocks: string[] = [];
+        let printedMorning = false;
         let printedAfternoon = false;
 
         for (const b of order.blocks) {
@@ -695,8 +739,14 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
             }
 
             const [hr] = b.time.split(':');
-            if (hr && parseInt(hr, 10) < 15) {
-                finalTextBlocks.push(`(${b.time})\n${b.text}`);
+            const hour = parseInt(hr, 10);
+            if (hour >= 6 && hour < 15) {
+                if (!printedMorning) {
+                    printedMorning = true;
+                    finalTextBlocks.push(`(${b.time})\n${b.text}`);
+                } else {
+                    finalTextBlocks.push(b.text);
+                }
             } else {
                 if (!printedAfternoon) {
                     printedAfternoon = true;
