@@ -78,19 +78,6 @@ function stripTomorrowPhrase(text: string, time: string | undefined): string {
     return text;
 }
 
-/**
- * Проверка: является ли строка перечислением товара.
- * Используется, чтобы случайно не сделать товар заголовком, если настоящий заголовок был удален фильтрами.
- */
-function isProductLine(line: string): boolean {
-    const clean = line.trim().toLowerCase();
-    // Ищем числа с явными единицами измерения товара (2кг, 15 шт, 0.5л, 10 гр, 2уп) где угодно в строке
-    if (/(?:\d+[,.]?\d*)\s*(кг|г|гр|шт|л|мл|уп|пачк[иа]|сетк[иа]|ведр[оа]|пучк[иа]|пучок|ящик|кор|короб|лоток)(?:[^а-яёa-z]|$)/i.test(clean)) {
-        return true;
-    }
-    return false;
-}
-
 export async function exportToWord(orders: OrderResult[], outputPath: string, fromTime?: string) {
     const configPath = path.resolve(process.cwd(), 'cafes_config.json');
     if (!fs.existsSync(configPath)) {
@@ -419,54 +406,51 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                     } 
                     // Правило: shared_chat или split_sub_orders/branches
                     else if (chatConfig.shared_chat || chatConfig.split_sub_orders || (chatConfig.branches && chatConfig.branches.length > 0)) {
-                        let headerParts = [];
-                        let textLines = [];
-                        
-                        for (let i = 0; i < lines.length; i++) {
-                            const line = lines[i];
-                            const cleanForCheck = line.replace(/[:,]/g, '').trim().toLowerCase();
-                            
-                            if (i === 0) {
-                                const blacklist = ['адам', 'сегодняшнюю', 'завтрашнюю', 'спасибо', 'пожалуйста', 'ок', 'хорошо', 'да', 'нет', 'на завтра', 'добавьте', 'добавка', 'дозаказ', 'в плазу', 'ребят', 'ребята', 'девчат', 'девочки', 'коллеги', 'подскажите', 'вопрос', 'внимание', '+'];
-                                if (chatConfig.allow_unlisted_headers === true || (!blacklist.includes(cleanForCheck) && !isProductLine(line))) {
-                                    let h = line;
-                                    if (h.endsWith(':')) h = h.slice(0, -1).trim();
-                                    headerParts.push(h);
-                                } else {
-                                    textLines = lines.slice(i);
-                                    break;
-                                }
-                            } else if (i === 1) {
-                                let isEntityOrAddress = false;
-                                
-                                if (/(^|[^а-яёa-z])(ип|ооо|зао|ао)([^а-яёa-z]|$)/i.test(line)) isEntityOrAddress = true;
-                                if (/(^|[^а-яёa-z])(ул\.?|улица|пр\.?|проспект|ш\.?|шоссе|жк|дом|д\.?|пер\.?|переулок)([^а-яёa-z]|$)/i.test(line)) isEntityOrAddress = true;
-                                
-                                if (!isEntityOrAddress && chatConfig.branches) {
-                                    for (const branch of chatConfig.branches) {
-                                        if (cleanForCheck.includes(branch.name.toLowerCase())) {
-                                            isEntityOrAddress = true; break;
-                                        }
-                                        for (const alias of branch.aliases || []) {
-                                            if (cleanForCheck.includes(alias.toLowerCase())) {
-                                                isEntityOrAddress = true; break;
-                                            }
-                                        }
+                        let headerParts: string[] = [];
+                        let textLines: string[] = [];
+                        const headerMarkers: { name: string; aliases: string[] }[] = Array.isArray(chatConfig.header_markers)
+                            ? chatConfig.header_markers
+                                .map((marker: unknown) => {
+                                    if (typeof marker === 'string') {
+                                        const value = marker.trim().toLowerCase();
+                                        return value ? { name: value, aliases: [value] } : null;
                                     }
+                                    if (marker && typeof marker === 'object') {
+                                        const item = marker as { name?: unknown; aliases?: unknown };
+                                        const name = String(item.name || '').trim().toLowerCase();
+                                        const aliases = [
+                                            name,
+                                            ...(Array.isArray(item.aliases) ? item.aliases.map((alias) => String(alias).trim().toLowerCase()) : [])
+                                        ].filter(Boolean);
+                                        return name ? { name, aliases: [...new Set(aliases)] } : null;
+                                    }
+                                    return null;
+                                })
+                                .filter((marker: { name: string; aliases: string[] } | null): marker is { name: string; aliases: string[] } => marker !== null)
+                            : [];
+
+                        if (headerMarkers.length > 0) {
+                            // Для чатов с независимыми организациями/адресами проверяем
+                            // только первые четыре строки. Все строки до последнего
+                            // найденного маркера считаются составным заголовком.
+                            let lastMarkerLine = -1;
+                            for (let i = 0; i < Math.min(4, lines.length); i++) {
+                                const normalizedLine = lines[i].replace(/[:,]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+                                if (headerMarkers.some((marker) => marker.aliases.some((alias) => normalizedLine.includes(alias)))) {
+                                    lastMarkerLine = i;
                                 }
-                                
-                                if (isEntityOrAddress) {
-                                    let h = line;
-                                    if (h.endsWith(':')) h = h.slice(0, -1).trim();
-                                    headerParts.push(h);
-                                } else {
-                                    textLines = lines.slice(i);
-                                    break;
-                                }
-                            } else {
-                                textLines = lines.slice(i);
-                                break;
                             }
+                            if (lastMarkerLine >= 0) {
+                                headerParts = lines.slice(0, lastMarkerLine + 1);
+                                textLines = lines.slice(lastMarkerLine + 1);
+                            } else {
+                                textLines = lines;
+                            }
+                        } else {
+                            // Без маркеров сохраняем прежнюю структуру: первая строка
+                            // может быть заголовком, а остальные остаются текстом.
+                            headerParts = lines.length > 0 ? [lines[0]] : [];
+                            textLines = lines.slice(1);
                         }
                         
                         if (headerParts.length > 0) {
@@ -478,7 +462,11 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                             rawHeader = rawHeader.replace(politeWords, ' '); // второй проход на случай подряд идущих слов
                             rawHeader = rawHeader.replace(/^[,.!\s]+|[,.!\s]+$/g, '').replace(/\s{2,}/g, ' ').trim();
                             
-                            headerSource = !chatConfig.shared_chat || chatConfig.allow_unlisted_headers === true || isExplicitVenueHeader(rawHeader, chatConfig)
+                            const markerHeader = headerMarkers.length > 0 && headerParts.some((part: string) => {
+                                const normalizedPart = part.replace(/[:,]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+                                return headerMarkers.some((marker) => marker.aliases.some((alias) => normalizedPart.includes(alias)));
+                            });
+                            headerSource = !chatConfig.shared_chat || chatConfig.allow_unlisted_headers === true || markerHeader || isExplicitVenueHeader(rawHeader, chatConfig)
                                 ? 'explicit'
                                 : 'chat-fallback';
                             if (headerSource === 'chat-fallback') {
