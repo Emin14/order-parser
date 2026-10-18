@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { OrderResult, MessageItem } from '../types';
 import { checkOrderDate, getBannerDateCategory, isMessageActual } from '../utils/date';
+import { findPageByUrl } from '../utils/browser_pages';
 
 const TELEGRAM_SPY_LOG = path.resolve(process.cwd(), 'telegram_spy.log');
 function telegramSpy(message: string): void {
@@ -296,7 +297,7 @@ export async function parseTelegram(context: BrowserContext): Promise<OrderResul
         }
     }
 
-    let page = context.pages().find(p => p.url().includes('web.telegram.org'));
+    let page = await findPageByUrl(context, url => url.includes('web.telegram.org'));
     if (page) {
         await activateTab(page);
         if (!page.url().includes('/k/')) {

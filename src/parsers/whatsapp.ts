@@ -1,6 +1,7 @@
 import { BrowserContext, Page } from 'playwright';
 import { OrderResult, MessageItem } from '../types';
 import { checkOrderDate, getBannerDateCategory, isMessageActual } from '../utils/date';
+import { findPageByUrl } from '../utils/browser_pages';
 
 function processRawItems(items: any[]): any[] {
     let lastSender = "";
@@ -24,6 +25,7 @@ function processRawItems(items: any[]): any[] {
         }
 
         let time = "";
+        let messageDate = "";
         let strPreText = "";
         let explicitDateCat: string | undefined = undefined;
 
@@ -33,6 +35,8 @@ function processRawItems(items: any[]): any[] {
                 const dateTime = match[1];
                 const timeMatch = dateTime.match(/\d{2}:\d{2}/);
                 if (timeMatch) time = timeMatch[0];
+                const dateMatch = dateTime.match(/\d{2}\.\d{2}\.\d{4}/);
+                if (dateMatch) messageDate = dateMatch[0].slice(0, 5);
                 strPreText = match[2].replace(/^~/, '');
                 
                 const now = new Date();
@@ -94,6 +98,7 @@ function processRawItems(items: any[]): any[] {
         processed.push({
             type: 'message',
             time: time,
+            date: messageDate,
             explicitDateCat: explicitDateCat,
             sender: currentSender,
             phone: currentPhone,
@@ -146,6 +151,7 @@ function filterActualMessages(items: any[], chatDateFallback: string = ''): Mess
                     sender: item.sender || '',
                     phone: item.phone || '',
                     time: item.time || '',
+                    date: item.date || undefined,
                     text: item.text.trim(),
                     ...(item.replyTo ? { replyTo: item.replyTo } : {})
                 });
@@ -203,7 +209,7 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
         }
     }
 
-    let page = context.pages().find(p => p.url().includes('whatsapp.com'));
+    let page = await findPageByUrl(context, url => url.includes('whatsapp.com'));
     if (page) {
         await activateTab(page);
     } else {
@@ -410,8 +416,6 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                                 const selectableTextEl = clone.querySelector('[data-testid="selectable-text"]');
                                 if (selectableTextEl) {
                                     cleanText = (selectableTextEl as HTMLElement).innerText || selectableTextEl.textContent || '';
-                                } else {
-                                    cleanText = clone.innerText || clone.textContent || '';
                                 }
                             } else {
                                 const clone = el.cloneNode(true) as HTMLElement;
@@ -453,18 +457,27 @@ export async function parseWhatsApp(context: BrowserContext): Promise<OrderResul
                                     quotedMsg.remove();
                                 }
                                 
-                                cleanText = clone.innerText || clone.textContent || '';
+                                // У медиа/стикеров может не быть copyable-text.
+                                // Не читаем весь контейнер: в нём находятся имя,
+                                // номер и время отправителя, которые нельзя считать
+                                // текстом сообщения.
+                                const selectableTextEl = clone.querySelector('[data-testid="selectable-text"]');
+                                if (selectableTextEl) {
+                                    cleanText = (selectableTextEl as HTMLElement).innerText || selectableTextEl.textContent || '';
+                                }
                             }
 
-                            results.push({
-                                type: 'message',
-                                authorText: authorEl ? (authorEl.textContent || '') : '',
-                                authorAria: authorEl ? (authorEl.getAttribute('aria-label') || '') : '',
-                                prePlainText: copyableEl ? (copyableEl.getAttribute('data-pre-plain-text') || '') : '',
-                                copyableText: cleanText,
-                                rawText: cleanText,
-                                replyTo: replyToObj
-                            });
+                            if (cleanText.trim() || replyToObj?.text) {
+                                results.push({
+                                    type: 'message',
+                                    authorText: authorEl ? (authorEl.textContent || '') : '',
+                                    authorAria: authorEl ? (authorEl.getAttribute('aria-label') || '') : '',
+                                    prePlainText: copyableEl ? (copyableEl.getAttribute('data-pre-plain-text') || '') : '',
+                                    copyableText: cleanText,
+                                    rawText: cleanText,
+                                    replyTo: replyToObj
+                                });
+                            }
                         } else {
                             if (!el.closest('[role="row"]')) {
                                 results.push({

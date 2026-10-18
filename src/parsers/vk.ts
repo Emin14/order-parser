@@ -1,6 +1,7 @@
 import { BrowserContext, Page } from 'playwright';
 import { OrderResult, MessageItem } from '../types';
 import { parseVkDate, getBannerDateCategory, isMessageActual } from '../utils/date';
+import { findPageByUrl } from '../utils/browser_pages';
 
 // Временная диагностика: только читает DOM, ничего не нажимает и не скрывает.
 async function logVkSpy(page: Page, stage: string): Promise<void> {
@@ -550,7 +551,7 @@ async function collectVkOrders(context: BrowserContext): Promise<OrderResult[]> 
         }
     }
 
-    let page = context.pages().find(p => p.url().includes('vk.com') || p.url().includes('vk.me') || p.url().includes('vk.ru'));
+    let page = await findPageByUrl(context, url => url.includes('vk.com') || url.includes('vk.me') || url.includes('vk.ru'));
     if (page) {
         await activateTab(page);
         if (!page.url().includes('/im') && !page.url().includes('web.vk.')) {
