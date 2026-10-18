@@ -25,7 +25,7 @@ function stripGreetings(text: string): string {
     let cleaned = text;
     
     // 1. Убираем базовые приветствия ТОЛЬКО в начале сообщения
-    const greetingsRegex = /^\s*(здравствуйте|добры[йя]\s*[,]?[ \s]*(день|вечер|ночь|утро)|доброго\s*(дня|вечера|утра|ночи)?|доброе\s*(утро)?|доброй\s*(ночи)?|приветствую|привет)[!,.\s:;)\]}]*/i;
+    const greetingsRegex = /^\s*(здравствуйте|добры[йя]\s*[,]?[ \s]*(день|вечер|ночь|утро)|доброго\s*(дня|вечера|утра|ночи)?|доброе\s*(утро|вечер|день|ночь)?|доброй\s*(ночи)?|приветствую|привет)[!,.\s:;)\]}]*/i;
     
     // 2. Убираем вводные фразы типа "примите заказ" ТОЛЬКО в начале сообщения
     const orderIntroRegex = /^\s*(?:прошу\s+принять\s+(?:заказ|заявку)|прими(?:те)?\s+(?:заказ|заявку)|пожалуйста|заказ|заявка)[!,.\s:;]*/i;
@@ -152,6 +152,8 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         header: string;
         text: string;
         time: string;
+        date?: string;
+        branchName?: string;
         sender: string;
         phone: string;
         chatName: string;
@@ -299,7 +301,10 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                         let matchedBranchName: string | null = null;
                         const lowLine = line.trim().toLowerCase();
                         for (const branch of chatConfig.branches) {
-                            if (branch.aliases.some((a: string) => lowLine.includes(a.toLowerCase()))) {
+                            const branchNames = [branch.name, ...(branch.aliases || [])]
+                                .filter(Boolean)
+                                .map((name: string) => name.toLowerCase().trim());
+                            if (branchNames.some((name: string) => lowLine.includes(name))) {
                                 isBranchStart = true;
                                 matchedBranchName = branch.name;
                                 break;
@@ -310,15 +315,9 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                                 newRawBlocks.push(currentBlock.join('\n'));
                                 currentBlock = [];
                             }
-                            // Если use_branch_name — подставляем официальное название ветки
-                            // чтобы заголовки совпадали и объединялись
-                            if (chatConfig.use_branch_name && matchedBranchName) {
-                                // Сохраняем пометку "Отдельно" если она есть в строке
-                                const isOtd = /отдельно|отдельной|отдельным/i.test(line);
-                                currentBlock.push(isOtd ? `${matchedBranchName} Отдельно` : matchedBranchName);
-                            } else {
-                                currentBlock.push(line);
-                            }
+                            // Сохраняем исходную строку. Каноническое имя филиала
+                            // используется отдельно как ключ объединения.
+                            currentBlock.push(line);
                         } else {
                             currentBlock.push(line);
                         }
@@ -382,6 +381,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                 let headerSource: 'explicit' | 'chat-fallback' = 'chat-fallback';
                 let isSeparateBlock = false;
                 let separatePhrase = '';
+                let detectedBranchName: string | undefined;
 
                 const lines = block.split('\n').map(l => l.trim()).filter(l => l);
                 if (lines.length === 0) continue;
@@ -444,7 +444,11 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                                 headerParts = lines.slice(0, lastMarkerLine + 1);
                                 textLines = lines.slice(lastMarkerLine + 1);
                             } else {
-                                textLines = lines;
+                                // Если независимый маркер не найден, всё равно
+                                // проверяем первую строку по branches. Маркеры
+                                // дополняют филиалы, а не заменяют их.
+                                headerParts = lines.length > 0 ? [lines[0]] : [];
+                                textLines = lines.slice(1);
                             }
                         } else {
                             // Без маркеров сохраняем прежнюю структуру: первая строка
@@ -466,7 +470,26 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                                 const normalizedPart = part.replace(/[:,]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
                                 return headerMarkers.some((marker) => marker.aliases.some((alias) => normalizedPart.includes(alias)));
                             });
-                            headerSource = !chatConfig.shared_chat || chatConfig.allow_unlisted_headers === true || markerHeader || isExplicitVenueHeader(rawHeader, chatConfig)
+                            const knownBranchHeader = markerHeader || isExplicitVenueHeader(rawHeader, chatConfig);
+                            const matchedBranch = (chatConfig.branches || []).find((branch: any) => {
+                                const names = [branch.name, ...(branch.aliases || [])]
+                                    .filter(Boolean)
+                                    .map((name: string) => String(name).toLowerCase());
+                                return names.some((name: string) => rawHeader.toLowerCase().includes(name));
+                            });
+                            detectedBranchName = matchedBranch?.name;
+                            const shouldUseChatFallback = Boolean(
+                                chatConfig.split_sub_orders === true &&
+                                !chatConfig.shared_chat &&
+                                (chatConfig.branches || []).length > 0 &&
+                                !knownBranchHeader &&
+                                chatConfig.allow_unlisted_headers !== true
+                            );
+                            headerSource = !shouldUseChatFallback && (
+                                !chatConfig.shared_chat ||
+                                chatConfig.allow_unlisted_headers === true ||
+                                knownBranchHeader
+                            )
                                 ? 'explicit'
                                 : 'chat-fallback';
                             if (headerSource === 'chat-fallback') {
@@ -477,9 +500,26 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                             } else {
                                 header = rawHeader;
                                 textBody = textLines.join('\n').trim();
+
+                                if (chatConfig.use_branch_name === true && chatConfig.branches?.length) {
+                                    if (matchedBranch) {
+                                        textBody = textLines.join('\n').trim();
+                                    }
+                                }
+
+                                // Однострочное сообщение вроде «Это еще на плазу»
+                                // содержит указание филиала, но не содержит товара.
+                                // Не превращаем его в пустой заказ: сохраняем исходную
+                                // строку отдельным текстовым блоком под названием чата.
+                                if (matchedBranch && textLines.length === 0 && lines.length === 1) {
+                                    header = cleanChatName;
+                                    headerSource = 'chat-fallback';
+                                    textBody = lines[0];
+                                    detectedBranchName = undefined;
+                                }
                             }
                             
-                            if (chatConfig.prefix_brand) {
+                            if (chatConfig.prefix_brand && headerSource === 'explicit') {
                                 header = `${cleanChatName} ${header}`;
                             }
                         } else {
@@ -529,6 +569,8 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                     header: header,
                     text: textBody,
                     time: msg.time,
+                    date: msg.date,
+                    branchName: detectedBranchName,
                     sender: msg.sender,
                     phone: msg.phone || '',
                     chatName: orderBlock.chatName,
@@ -583,6 +625,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         const canContinue = Boolean(
             voChatConfig.allow_unlisted_headers !== true &&
             !vo.isBranchHeader &&
+            !(voChatConfig.split_sub_orders === true && (voChatConfig.branches || []).length > 0) &&
             !vo.hasReply &&
             previousRunOrder &&
             previousRunOrder.chatName === vo.chatName &&
@@ -601,7 +644,8 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         chatName: string;
         sender: string;
         phone: string;
-        blocks: { time: string, text: string }[];
+        branchName?: string;
+        blocks: { time: string, date?: string, text: string }[];
         runKey?: string;
     }
     const groupedOrders: GroupedOrder[] = [];
@@ -623,7 +667,9 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                 existing = groupedOrders.find(g => g.runKey === vo.runKey && g.chatName === vo.chatName);
             } else if (chatConfig.shared_chat === true) {
                 if (vo.headerSource === 'explicit' && !vo.hasReply && mergeSetting) {
-                    existing = groupedOrders.find(g => g.header === vo.header && g.chatName === vo.chatName);
+                    existing = vo.branchName
+                        ? groupedOrders.find(g => g.branchName === vo.branchName && g.chatName === vo.chatName)
+                        : groupedOrders.find(g => g.header === vo.header && g.chatName === vo.chatName);
                 } else if (vo.headerSource === 'chat-fallback' && !vo.hasReply && vo.runKey) {
                     existing = groupedOrders.find(g => g.runKey === vo.runKey && g.chatName === vo.chatName);
                 }
@@ -632,19 +678,22 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                 existing = groupedOrders.find(g => g.sender === vo.sender && g.chatName === vo.chatName);
             } else if (mergeSetting) {
                 // Стандартное объединение: одинаковый заголовок → один блок
-                existing = groupedOrders.find(g => g.header === vo.header && g.chatName === vo.chatName);
+                existing = vo.branchName
+                    ? groupedOrders.find(g => g.branchName === vo.branchName && g.chatName === vo.chatName)
+                    : groupedOrders.find(g => g.header === vo.header && g.chatName === vo.chatName);
             }
         }
 
         if (existing) {
-            existing.blocks.push({ time: vo.time, text: vo.text });
+            existing.blocks.push({ time: vo.time, date: vo.date, text: vo.text });
         } else {
             groupedOrders.push({
                 header: vo.header,
                 chatName: vo.chatName,
                 sender: vo.sender,
                 phone: vo.phone,
-                blocks: [{ time: vo.time, text: vo.text }],
+                branchName: vo.branchName,
+                blocks: [{ time: vo.time, date: vo.date, text: vo.text }],
                 runKey: vo.runKey
             });
         }
@@ -659,10 +708,13 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
     // --- ЭТАП 4: Генерация Word документа ---
     const children: Paragraph[] = [];
     let prevChatName = '';
+    const printedDatesByChat = new Map<string, Set<string>>();
 
     for (const order of groupedOrders) {
         const isNewChat = order.chatName !== prevChatName;
         prevChatName = order.chatName;
+        const printedDates = printedDatesByChat.get(order.chatName) || new Set<string>();
+        printedDatesByChat.set(order.chatName, printedDates);
 
         // Заголовок заказа (Жирный, Calibri 16)
         // Первый заголовок нового чата — первая буква красная + больше отступов сверху
@@ -719,8 +771,20 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         const finalTextBlocks: string[] = [];
         let printedMorning = false;
         let printedAfternoon = false;
-
         for (const b of order.blocks) {
+            // WhatsApp передаёт точную дату сообщения в pre-plain-text.
+            // Если дата известна, показываем её вместе со временем для каждого
+            // первого блока этой даты, включая сообщения из предыдущей даты.
+            if (b.date && b.time) {
+                if (!printedDates.has(b.date)) {
+                    printedDates.add(b.date);
+                    finalTextBlocks.push(`(${b.date} ${b.time})\n${b.text}`);
+                } else {
+                    finalTextBlocks.push(b.text);
+                }
+                continue;
+            }
+
             if (!hasMorning || !b.time) {
                 finalTextBlocks.push(b.text);
                 continue;

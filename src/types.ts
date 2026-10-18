@@ -2,7 +2,9 @@ export interface MessageItem {
     sender: string;
     phone: string;
     time: string;
+    date?: string;
     text: string;
+    branchName?: string;
     replyTo?: {
         sender: string;
         phone?: string;
