@@ -18,27 +18,35 @@ function cleanBrandName(rawName: string): string {
         .trim();
 }
 
-/**
- * Удаляет приветствия из текста, чтобы они не попадали в заголовки.
- */
+const removableGreetingPhrases = [
+    'здравствуйте', 'добрый день', 'добрый вечер', 'доброе утро',
+    'доброе вечер', 'доброе день', 'доброе ночь', 'доброго дня',
+    'доброго вечера', 'доброго утра', 'доброго ночи', 'доброй ночи',
+    'приветствую', 'привет'
+];
+
+const removableGreetingPattern = removableGreetingPhrases
+    .sort((a, b) => b.length - a.length)
+    .map((phrase) => phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|');
+
+/** Удаляет приветственные фразы из первых трёх непустых строк сообщения. */
+function stripGreetingsFromFirstLines(text: string): string {
+    const lines = text.split('\n');
+    let checkedLines = 0;
+    const greetingRegex = new RegExp(`[\\s\\t,;:!?\\.()\\[\\]{}"'«»„“”]*(?<![A-Za-zА-Яа-яЁё0-9])(${removableGreetingPattern})(?![A-Za-zА-Яа-яЁё0-9])[\\s\\t,;:!?\\.()\\[\\]{}"'«»„“”]*`, 'gi');
+
+    return lines.map((line) => {
+        if (!line.trim()) return line;
+        checkedLines += 1;
+        if (checkedLines > 3) return line;
+        return line.replace(greetingRegex, ' ').replace(/[ \t]{2,}/g, ' ').trim();
+    }).join('\n');
+}
+
+/** Удаляет приветствия из текста, чтобы они не попадали в заголовки. */
 function stripGreetings(text: string): string {
-    let cleaned = text;
-    
-    // 1. Убираем базовые приветствия ТОЛЬКО в начале сообщения
-    const greetingsRegex = /^\s*(здравствуйте|добры[йя]\s*[,]?[ \s]*(день|вечер|ночь|утро)|доброго\s*(дня|вечера|утра|ночи)?|доброе\s*(утро|вечер|день|ночь)?|доброй\s*(ночи)?|приветствую|привет)[!,.\s:;)\]}]*/i;
-    
-    // 2. Убираем вводные фразы типа "примите заказ" ТОЛЬКО в начале сообщения
-    const orderIntroRegex = /^\s*(?:прошу\s+принять\s+(?:заказ|заявку)|прими(?:те)?\s+(?:заказ|заявку)|пожалуйста|заказ|заявка)[!,.\s:;]*/i;
-    
-    // Прогоняем несколько раз, чтобы удалить цепочки (например, "Здравствуйте! примите заказ пожалуйста на сегодня")
-    let prev = '';
-    while (cleaned !== prev) {
-        prev = cleaned;
-        cleaned = cleaned.replace(greetingsRegex, '');
-        cleaned = cleaned.replace(orderIntroRegex, '');
-    }
-    
-    return cleaned.trim();
+    return stripGreetingsFromFirstLines(text).trim();
 }
 
 /**
@@ -500,6 +508,13 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                             } else {
                                 header = rawHeader;
                                 textBody = textLines.join('\n').trim();
+
+                                // По умолчанию сохраняем исходную строку филиала.
+                                // Для чатов с use_branch_name выводим каноническое имя
+                                // из branches вместо исходной строки филиала.
+                                if (chatConfig.use_branch_name === true && matchedBranch) {
+                                    header = matchedBranch.name;
+                                }
 
                                 if (chatConfig.use_branch_name === true && chatConfig.branches?.length) {
                                     if (matchedBranch) {
