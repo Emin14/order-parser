@@ -22,7 +22,7 @@ const removableGreetingPhrases = [
     'здравствуйте', 'добрый день', 'добрый вечер', 'доброе утро',
     'доброе вечер', 'доброе день', 'доброе ночь', 'доброго дня',
     'доброго вечера', 'доброго утра', 'доброго ночи', 'доброй ночи',
-    'приветствую', 'привет'
+    'приветствую', 'привет', 'примите заказ'
 ];
 
 const removableGreetingPattern = removableGreetingPhrases
@@ -237,7 +237,24 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                     );
                 }
 
-                if (parentMsg && !isAdminMessage) {
+                const parentIsAdminMessage = Boolean(
+                    parentMsg &&
+                    adminRulesEnabled &&
+                    adminNames.has((parentMsg.sender || '').trim().toLocaleLowerCase('ru-RU'))
+                );
+                const sameAdminReply = Boolean(
+                    parentMsg &&
+                    isAdminMessage &&
+                    parentIsAdminMessage &&
+                    (msg.sender || '').trim().toLocaleLowerCase('ru-RU') ===
+                        (parentMsg.sender || '').trim().toLocaleLowerCase('ru-RU')
+                );
+
+                // Ответ обычного пользователя на сообщение администратора
+                // остаётся отдельным блоком с обычным заголовком чата.
+                // Объединение сохраняется только для ответа администратора
+                // самому себе.
+                if (parentMsg && ((!isAdminMessage && !parentIsAdminMessage) || sameAdminReply)) {
                     parentMsg.text += '\n' + msg.text;
                     (parentMsg as any)._hasReplyContinuation = true;
                     msg.text = ''; // Очищаем: текст влился в родителя
