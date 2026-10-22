@@ -3,6 +3,13 @@ import * as path from 'path';
 import { Document, Paragraph, TextRun, Packer } from 'docx';
 import { OrderResult, MessageItem } from '../types';
 
+const EXPORT_DETAIL_LOG = path.resolve(process.cwd(), 'export_detail.log');
+function logExportDetail(stage: string, data: unknown): void {
+    try {
+        fs.appendFileSync(EXPORT_DETAIL_LOG, `[${new Date().toISOString()}] ${stage} ${JSON.stringify(data)}\n`);
+    } catch { /* диагностика не должна останавливать экспорт */ }
+}
+
 /**
  * Вспомогательная функция очистки названия от служебных слов
  * Убирает "заказы", "овощи", "фрукты" и т.д.
@@ -621,6 +628,15 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                         ((chatConfig.branches || []).length > 0 && isExplicitVenueHeader(header, chatConfig))
                     )
                 });
+                logExportDetail(`block chat=${orderBlock.chatName}`, {
+                    sender: msg.sender,
+                    time: msg.time,
+                    rawLines: lines,
+                    header,
+                    headerSource,
+                    detectedBranchName,
+                    hasReply: Boolean(msg.replyTo)
+                });
             }
         }
     }
@@ -633,7 +649,10 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         const isDefaultHeader = vo.header === cleanBrandName(vo.chatName);
         
         // isReply обрабатывается в Phase 1 — здесь только явные слова-маркеры
-        if (isAddition || (isProductOnly && isDefaultHeader)) {
+        // Явно названный блок нельзя переименовывать как добавку.
+        // Например, заказ «Руки вверх» может содержать строку «Добавлю:».
+        // Самостоятельный заголовок важнее маркера добавки.
+        if (!vo.isBranchHeader && (isAddition || (isProductOnly && isDefaultHeader))) {
             // Ищем последний заказ этого же автора В ЭТОМ ЖЕ ЧАТЕ
             for (let i = linkedOrders.length - 1; i >= 0; i--) {
                 if (linkedOrders[i].sender === vo.sender && linkedOrders[i].chatName === vo.chatName) {
@@ -717,8 +736,21 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         }
 
         if (existing) {
+            logExportDetail(`group-merge chat=${vo.chatName}`, {
+                incomingHeader: vo.header,
+                existingHeader: existing.header,
+                sender: vo.sender,
+                runKey: vo.runKey,
+                branchName: vo.branchName
+            });
             existing.blocks.push({ time: vo.time, date: vo.date, text: vo.text });
         } else {
+            logExportDetail(`group-new chat=${vo.chatName}`, {
+                header: vo.header,
+                sender: vo.sender,
+                runKey: vo.runKey,
+                branchName: vo.branchName
+            });
             groupedOrders.push({
                 header: vo.header,
                 chatName: vo.chatName,
