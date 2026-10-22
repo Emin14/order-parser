@@ -1,7 +1,16 @@
 import { BrowserContext, Page } from 'playwright';
+import * as fs from 'fs';
+import * as path from 'path';
 import { OrderResult, MessageItem } from '../types';
 import { parseVkDate, getBannerDateCategory, isMessageActual } from '../utils/date';
 import { findPageByUrl } from '../utils/browser_pages';
+
+const VK_DETAIL_LOG = path.resolve(process.cwd(), 'vk_detail.log');
+function logVkDetail(stage: string, data: unknown): void {
+    try {
+        fs.appendFileSync(VK_DETAIL_LOG, `[${new Date().toISOString()}] ${stage} ${JSON.stringify(data)}\n`);
+    } catch { /* диагностика не должна останавливать парсер */ }
+}
 
 // Временная диагностика: только читает DOM, ничего не нажимает и не скрывает.
 async function logVkSpy(page: Page, stage: string): Promise<void> {
@@ -354,6 +363,13 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
     // Общее хранилище всех сырых сообщений, строго отсортированных (top-to-bottom)
     const masterList: { key: string; item: any }[] = [];
     const registerItems = (items: any[]) => {
+        logVkDetail(`raw-items chat=${chatName}`, items.filter(item => item.type === 'message').map(item => ({
+            messageId: item.messageId,
+            sender: item.sender,
+            time: item.time,
+            text: item.text,
+            bannerDate: item.bannerDate
+        })));
         let anchorIndex = -1; // -1 означает конец списка (самые новые)
         
         for (let i = items.length - 1; i >= 0; i--) {
@@ -518,8 +534,17 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
     }
     const rawItems = masterList.map(x => x.item);
     const sortedRawItems = sortMessagesChronologically(rawItems, fallbackCategory);
+    logVkDetail(`sorted-items chat=${chatName}`, sortedRawItems.filter(item => item.type === 'message').map(item => ({
+        messageId: item.messageId,
+        sender: item.sender,
+        time: item.time,
+        text: item.text,
+        bannerDate: item.bannerDate
+    })));
     console.log(`🕵️ [VK spy] Извлечено [${chatName}]: сырых=${rawItems.length}, перед фильтрацией=${sortedRawItems.length}, даты=${JSON.stringify([...new Set(sortedRawItems.map(item => item.bannerDate || '(нет даты)'))].slice(0, 10))}`);
-    return filterActualVkMessages(sortedRawItems, chatName, chatDateStr);
+    const filtered = filterActualVkMessages(sortedRawItems, chatName, chatDateStr);
+    logVkDetail(`filtered-items chat=${chatName}`, filtered.map(item => ({ sender: item.sender, time: item.time, text: item.text, replyTo: item.replyTo })));
+    return filtered;
 }
 
 export async function parseVk(context: BrowserContext): Promise<OrderResult[]> {
