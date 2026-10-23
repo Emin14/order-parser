@@ -32,10 +32,26 @@ const removableGreetingPhrases = [
     'приветствую', 'привет', 'примите заказ'
 ];
 
+// Эти фразы удаляются только когда вся непустая строка состоит из них.
+// Регистр, пробелы и знаки препинания при проверке не учитываются.
+const removableWholeLinePhrases = [
+    'адам', 'асиман', 'заявка', 'овощи', 'ба'
+];
+
 const removableGreetingPattern = removableGreetingPhrases
     .sort((a, b) => b.length - a.length)
     .map((phrase) => phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .join('|');
+
+const normalizeWholeLinePhrase = (value: string): string => value
+    .toLocaleLowerCase('ru-RU')
+    .replace(/[^\p{L}\p{N}]+/gu, '');
+const removableWholeLineValues = new Set(removableWholeLinePhrases.map(normalizeWholeLinePhrase));
+
+function isRemovableWholeLine(line: string): boolean {
+    const normalized = normalizeWholeLinePhrase(line);
+    return normalized.length > 0 && removableWholeLineValues.has(normalized);
+}
 
 /** Удаляет приветственные фразы из первых трёх непустых строк сообщения. */
 function stripGreetingsFromFirstLines(text: string): string {
@@ -47,7 +63,11 @@ function stripGreetingsFromFirstLines(text: string): string {
         if (!line.trim()) return line;
         checkedLines += 1;
         if (checkedLines > 3) return line;
-        return line.replace(greetingRegex, ' ').replace(/[ \t]{2,}/g, ' ').trim();
+        if (isRemovableWholeLine(line)) return '';
+        const cleanedLine = line.replace(greetingRegex, ' ').replace(/[ \t]{2,}/g, ' ').trim();
+        // После удаления вводной фразы могла остаться самостоятельная фраза
+        // из списка whole-line (например, «Добрый день! Адам» -> «Адам»).
+        return isRemovableWholeLine(cleanedLine) ? '' : cleanedLine;
     }).join('\n');
 }
 
