@@ -822,8 +822,8 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         // "Воскресные заказы" мы собираем либо в понедельник до 18:00 (дневной сбор), либо в воскресенье после 18:00 (вечерний сбор).
         const now = new Date();
         const day = now.getDay();
-        const hour = now.getHours();
-        const isSundayBatch = (day === 1 && hour < 18) || (day === 0 && hour >= 18);
+        const currentHour = now.getHours();
+        const isSundayBatch = (day === 1 && currentHour < 18) || (day === 0 && currentHour >= 18);
         
         const hasMorning = !isSundayBatch && order.blocks.some(b => {
             if (!b.time) return false;
@@ -836,15 +836,34 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         let printedMorning = false;
         let printedAfternoon = false;
         for (const b of order.blocks) {
-            // WhatsApp передаёт точную дату сообщения в pre-plain-text.
-            // Если дата известна, показываем её вместе со временем для каждого
-            // первого блока этой даты, включая сообщения из предыдущей даты.
             if (b.date && b.time) {
-                if (!printedDates.has(b.date)) {
-                    printedDates.add(b.date);
-                    finalTextBlocks.push(`(${b.date} ${b.time})\n${b.text}`);
+                const [dayPart, monthPart] = b.date.split('.').map(Number);
+                const messageDate = new Date(now.getFullYear(), monthPart - 1, dayPart);
+                const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                if (messageDate > todayDate) messageDate.setFullYear(messageDate.getFullYear() - 1);
+                const ageDays = Math.floor((todayDate.getTime() - messageDate.getTime()) / 86400000);
+                const oldDateThreshold = day === 1 && currentHour < 18 ? 3 : 2;
+
+                // Сегодня и вчера сохраняют правило 06:00–14:59.
+                // Для более старых дат показываем любое время вместе с датой.
+                if (ageDays >= oldDateThreshold) {
+                    if (!printedDates.has(b.date)) {
+                        printedDates.add(b.date);
+                        finalTextBlocks.push(`(${b.date} ${b.time})\n${b.text}`);
+                    } else {
+                        finalTextBlocks.push(b.text);
+                    }
                 } else {
-                    finalTextBlocks.push(b.text);
+                    const [hr] = b.time.split(':');
+                    const messageHour = parseInt(hr, 10);
+                    if (!hasMorning || messageHour < 6 || messageHour >= 15) {
+                        finalTextBlocks.push(b.text);
+                    } else if (!printedMorning) {
+                        printedMorning = true;
+                        finalTextBlocks.push(`(${b.time})\n${b.text}`);
+                    } else {
+                        finalTextBlocks.push(b.text);
+                    }
                 }
                 continue;
             }
