@@ -305,6 +305,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         } 
 
         for (const msg of messages) {
+            const originalMessageText = msg.text;
             msg.text = stripGreetings(msg.text);
             msg.text = stripTomorrowPhrase(msg.text, msg.time);
             if (!msg.text) continue;
@@ -580,11 +581,32 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                                 // из branches вместо исходной строки филиала.
                                 if (chatConfig.use_branch_name === true && matchedBranch) {
                                     header = matchedBranch.name;
-                                }
 
-                                if (chatConfig.use_branch_name === true && chatConfig.branches?.length) {
-                                    if (matchedBranch) {
-                                        textBody = textLines.join('\n').trim();
+                                    // Каноническое имя используется только для
+                                    // заголовка и объединения. Остаток исходных
+                                    // строк филиала возвращаем в текст заказа,
+                                    // чтобы не потерять просьбы и комментарии.
+                                    const originalLines = originalMessageText
+                                        .split('\n')
+                                        .map(line => line.trim())
+                                        .filter(Boolean);
+                                    const originalHeaderLines = originalLines.slice(0, Math.max(branchHeaderLine + 1, 1));
+                                    const originalHeaderText = originalHeaderLines.join(' ');
+                                    const branchAliases = [matchedBranch.name, ...(matchedBranch.aliases || [])]
+                                        .filter(Boolean)
+                                        .map((name: string) => String(name).trim())
+                                        .sort((a: string, b: string) => b.length - a.length);
+                                    const matchedAlias = branchAliases.find((alias: string) =>
+                                        originalHeaderText.toLocaleLowerCase('ru-RU').includes(alias.toLocaleLowerCase('ru-RU'))
+                                    );
+                                    if (matchedAlias) {
+                                        const remainder = originalHeaderText
+                                            .replace(new RegExp(matchedAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), ' ')
+                                            .replace(/\s+/g, ' ')
+                                            .trim();
+                                        if (remainder) {
+                                            textBody = [remainder, ...textLines].join('\n').trim();
+                                        }
                                     }
                                 }
 
