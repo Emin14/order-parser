@@ -15,6 +15,23 @@ export interface CollectionTextBlock {
     text: string;
 }
 
+type CollectionPart = 'previous-period' | 'non-working-day' | 'current-period';
+
+function getCollectionPart(messageDate: Date, now: Date): CollectionPart {
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const messageDay = messageDate.getDay();
+    const todayDay = today.getDay();
+
+    // Воскресенье не является рабочим днём. В воскресенье вечером и
+    // в понедельник воскресные сообщения входят в сбор, но не получают
+    // отметку времени.
+    if (messageDay === 0 && (todayDay === 0 || todayDay === 1)) {
+        return 'non-working-day';
+    }
+    if (messageDate.getTime() < today.getTime()) return 'previous-period';
+    return 'current-period';
+}
+
 export function getCollectionContext(now: Date = new Date()): CollectionContext {
     const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const hour = now.getHours();
@@ -102,10 +119,15 @@ export function formatCollectionBlocks(
     printedDates: Set<string>,
     now: Date = new Date()
 ): string {
-    const context = getCollectionContext(now);
     const hasMorning = blocks.some(block => {
         const hour = Number.parseInt((block.time || '').split(':')[0], 10);
-        return Number.isFinite(hour) && hour >= 6 && hour < 15;
+        if (!Number.isFinite(hour) || hour < 6 || hour >= 15) return false;
+        if (!block.date) return true;
+        const [day, month] = block.date.split('.').map(Number);
+        const messageDate = new Date(now.getFullYear(), month - 1, day);
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (messageDate > today) messageDate.setFullYear(messageDate.getFullYear() - 1);
+        return getCollectionPart(messageDate, now) === 'current-period';
     });
     const result: string[] = [];
     let printedMorning = false;
@@ -134,14 +156,17 @@ export function formatCollectionBlocks(
         const messageDate = new Date(now.getFullYear(), month - 1, day);
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         if (messageDate > today) messageDate.setFullYear(messageDate.getFullYear() - 1);
-        const ageDays = Math.floor((today.getTime() - messageDate.getTime()) / 86400000);
-        const oldDateThreshold = context.includesSunday && now.getHours() < 18 ? 3 : 2;
 
-        if (ageDays >= oldDateThreshold) {
+        const collectionPart = getCollectionPart(messageDate, now);
+        if (collectionPart === 'previous-period') {
             if (!printedDates.has(block.date)) {
                 printedDates.add(block.date);
                 result.push(`(${block.date} ${block.time})\n${block.text}`);
             } else result.push(block.text);
+            continue;
+        }
+        if (collectionPart === 'non-working-day') {
+            result.push(block.text);
             continue;
         }
 
