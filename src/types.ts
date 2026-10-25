@@ -5,6 +5,10 @@ export interface MessageItem {
     date?: string;
     text: string;
     branchName?: string;
+    isForwarded?: boolean;
+    forwardedFrom?: string;
+    forwardedDate?: string;
+    forwardedTime?: string;
     replyTo?: {
         sender: string;
         phone?: string;

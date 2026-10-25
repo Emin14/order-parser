@@ -143,6 +143,31 @@ function extractVkElementsFromDom(): any[] {
 
             let cleanText = '';
             let replyTo: any = undefined;
+            let forwardedFrom = '';
+            let forwardedDate = '';
+            let forwardedTime = '';
+
+            const forwardedNode = el.querySelector('.ForwardedMessageNew, [class*="ForwardedMessage"]');
+            if (forwardedNode) {
+                const forwardedAuthor = forwardedNode.querySelector('.ForwardedMessageNew__userName, [class*="ForwardedMessage"] a[href]');
+                forwardedFrom = (forwardedAuthor?.textContent || '').trim();
+                const forwardedInfo = forwardedNode.querySelector('.ForwardedMessageNew__info, [class*="ForwardedMessage"] [class*="info"]');
+                const infoText = (forwardedInfo?.textContent || '').replace(/\s+/g, ' ').trim();
+                const dateMatch = infoText.match(/(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)(?:\s+(\d{4}))?[^\d]*(\d{1,2}:\d{2})/i);
+                if (dateMatch) {
+                    const months: Record<string, number> = {
+                        января: 1, февраля: 2, марта: 3, апреля: 4, мая: 5, июня: 6,
+                        июля: 7, августа: 8, сентября: 9, октября: 10, ноября: 11, декабря: 12
+                    };
+                    const now = new Date();
+                    const year = dateMatch[3] ? Number(dateMatch[3]) : now.getFullYear();
+                    const month = months[dateMatch[2].toLowerCase()];
+                    const sourceDate = new Date(year, month - 1, Number(dateMatch[1]));
+                    if (!dateMatch[3] && sourceDate > now) sourceDate.setFullYear(sourceDate.getFullYear() - 1);
+                    forwardedDate = `${String(sourceDate.getDate()).padStart(2, '0')}.${String(sourceDate.getMonth() + 1).padStart(2, '0')}.${sourceDate.getFullYear()}`;
+                    forwardedTime = dateMatch[4];
+                }
+            }
 
             const replyNode = el.querySelector('.Reply, [data-testid="vkme_replied_message"], [class*="reply"], .ConvoMessageWithoutBubble__reply');
             if (replyNode) {
@@ -215,6 +240,12 @@ function extractVkElementsFromDom(): any[] {
                 if (replyTo) {
                     msgObj.replyTo = replyTo;
                 }
+                if (forwardedFrom && forwardedDate && forwardedTime) {
+                    msgObj.isForwarded = true;
+                    msgObj.forwardedFrom = forwardedFrom;
+                    msgObj.forwardedDate = forwardedDate;
+                    msgObj.forwardedTime = forwardedTime;
+                }
                 results.push(msgObj);
             }
         }
@@ -268,6 +299,12 @@ function filterActualVkMessages(items: any[], chatName: string, chatDateFallback
                 time: item.time || '',
                 text: item.text.trim()
             };
+            if (item.isForwarded) {
+                msgObj.isForwarded = true;
+                msgObj.forwardedFrom = item.forwardedFrom;
+                msgObj.forwardedDate = item.forwardedDate;
+                msgObj.forwardedTime = item.forwardedTime;
+            }
             if (item.replyTo) {
                 msgObj.replyTo = item.replyTo;
             }

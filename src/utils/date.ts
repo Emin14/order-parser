@@ -4,7 +4,8 @@ export interface CheckOrderResult {
     reason: string;
 }
 
-export type ShiftMode = 'DAY' | 'EVENING_NIGHT';
+import { getCollectionContext, isMessageInCollection, type MessageCategory, type ShiftMode } from './collection';
+export type { ShiftMode } from './collection';
 
 const DAYS_EN = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const DAYS_RU = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
@@ -16,19 +17,8 @@ const MONTHS_RU = ['январ', 'феврал', 'март', 'апрел', 'ма
  * Определение текущего режима сбора
  */
 export function getShiftMode(now: Date = new Date()): { mode: ShiftMode; baseDate: Date } {
-    const hour = now.getHours();
-    if (hour >= 18) {
-        // Вечерний сбор (18:00 - 23:59)
-        return { mode: 'EVENING_NIGHT', baseDate: now };
-    } else if (hour < 6) {
-        // Ночной сбор (00:00 - 05:59): смена продолжается от вчера
-        const yesterday = new Date(now);
-        yesterday.setDate(yesterday.getDate() - 1);
-        return { mode: 'EVENING_NIGHT', baseDate: yesterday };
-    } else {
-        // Дневной сбор (06:00 - 17:59): от вчера до сегодня 15:00
-        return { mode: 'DAY', baseDate: now };
-    }
+    const collection = getCollectionContext(now);
+    return { mode: collection.mode, baseDate: collection.shiftStart };
 }
 
 /**
@@ -374,119 +364,9 @@ export function getBannerDateCategory(bannerText: string): 'today' | 'yesterday'
  * Проверка актуальности отдельного сообщения с учетом правил смены
  */
 export function isMessageActual(
-    category: 'today' | 'yesterday' | 'dayBeforeYesterday' | 'older', 
+    category: MessageCategory,
     timeStr: string, 
     messageText: string = ''
 ): boolean {
-    if (category === 'older') return false;
-
-    const now = new Date();
-    const { mode } = getShiftMode(now);
-    const dayOfWeek = now.getDay(); // 0 = вс, 1 = пн
-
-    let h = 0;
-    let m = 0;
-    if (timeStr) {
-        const match = timeStr.match(/(\d{1,2}):(\d{2})/);
-        if (match) {
-            h = parseInt(match[1], 10);
-            m = parseInt(match[2], 10);
-        }
-    }
-
-    // Вспомогательная функция для проверки времени (новое правило: >= 11:00 берем все, 09:00-10:59 с пометкой)
-    const checkTargetTime = (hour: number, text: string, refDate: Date) => {
-        if (hour >= 11) return true;
-        if (hour >= 9 && hour < 11) {
-            const hasAnyDay = /(?:^|[^а-яa-z0-9])на\s+(пн|понедельник|вт|вторник|ср|среду|чт|четверг|пт|пятницу|сб|субботу|вс|воскресенье|воскресенья)(?:[^а-яa-z0-9]|$)/i.test(text);
-            return isForTomorrow(text, refDate) || hasAnyDay;
-        }
-        return false;
-    };
-
-    // ==========================================
-    // РЕЖИМ 1: ВЕЧЕРНЕ-НОЧНОЙ СБОР (18:00 - 06:00)
-    // ==========================================
-    if (mode === 'EVENING_NIGHT') {
-        if (now.getHours() >= 18) {
-            // Обычный вечерний сбор забирает ТОЛЬКО сегодня
-            if (category === 'today') {
-                if (dayOfWeek === 0) return true;
-                return checkTargetTime(h, messageText, now);
-            }
-            // В Воскресенье вечером разрешаем собирать еще и субботу (вчера)
-            if (category === 'yesterday' && dayOfWeek === 0) {
-                const yesterday = new Date(now);
-                yesterday.setDate(yesterday.getDate() - 1);
-                return checkTargetTime(h, messageText, yesterday);
-            }
-            return false;
-        } else {
-            // Ночь (00:00 - 05:59): смена продолжается от вчера
-            if (category === 'today') {
-                if (h >= 12) {
-                    const yesterday = new Date(now);
-                    yesterday.setDate(yesterday.getDate() - 1);
-                    return checkTargetTime(h, messageText, yesterday);
-                }
-                return h < 6;
-            }
-
-            if (category === 'yesterday') {
-                const yesterday = new Date(now);
-                yesterday.setDate(yesterday.getDate() - 1);
-                return checkTargetTime(h, messageText, yesterday);
-            }
-
-            return false;
-        }
-    }
-
-    // ==========================================
-    // РЕЖИМ 2: ДНЕВНОЙ СБОР (06:00 - 18:00)
-    // ==========================================
-    if (mode === 'DAY') {
-        // ПОЗАВЧЕРА (dayBeforeYesterday)
-        // В понедельник мы собираем субботу (dayBeforeYesterday)
-        if (category === 'dayBeforeYesterday') {
-            if (dayOfWeek === 1) {
-                const dayBeforeYesterday = new Date(now);
-                dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 2);
-                return checkTargetTime(h, messageText, dayBeforeYesterday);
-            }
-            return false;
-        }
-
-        // ВЧЕРА (yesterday):
-        if (category === 'yesterday') {
-            // Если сегодня понедельник, то вчера - это воскресенье. Забираем ВСЁ за воскресенье!
-            if (dayOfWeek === 1) {
-                return true;
-            }
-            
-            // В остальные дни работает новое правило 11:00/12:00
-            const yesterday = new Date(now);
-            yesterday.setDate(yesterday.getDate() - 1);
-            return checkTargetTime(h, messageText, yesterday);
-        }
-
-        // СЕГОДНЯ (today):
-        if (category === 'today') {
-            // Если сегодня воскресенье, то мы собираем ВСЕ заказы за сегодня (с 00:00 до 23:59)
-            if (dayOfWeek === 0) {
-                return true;
-            }
-            
-            // Обычные дни:
-            if (now.getHours() < 15) {
-                return true;
-            } else {
-                return h < 15 || (h === 15 && m === 0);
-            }
-        }
-
-        return false;
-    }
-
-    return false;
+    return isMessageInCollection(category, timeStr, messageText, isForTomorrow);
 }

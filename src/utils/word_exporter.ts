@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Document, Paragraph, TextRun, Packer } from 'docx';
 import { OrderResult, MessageItem } from '../types';
+import { formatCollectionBlocks, getCollectionContext } from './collection';
 
 const EXPORT_DETAIL_LOG = path.resolve(process.cwd(), 'export_detail.log');
 function logExportDetail(stage: string, data: unknown): void {
@@ -35,7 +36,7 @@ const removableGreetingPhrases = [
 // Эти фразы удаляются только когда вся непустая строка состоит из них.
 // Регистр, пробелы и знаки препинания при проверке не учитываются.
 const removableWholeLinePhrases = [
-    'адам', 'асиман', 'заявка', 'овощи', 'ба'
+    'адам', 'асиман', 'заявка', 'овощи', 'ба', 'спасибо'
 ];
 
 const removableGreetingPattern = removableGreetingPhrases
@@ -89,12 +90,7 @@ function stripTomorrowPhrase(text: string, time: string | undefined): string {
     // Если заказ написан после 15:00 (т.е. 15:00 - 23:59)
     if (h >= 15) {
         // Определяем целевую дату заказа
-        const now = new Date();
-        const targetDate = new Date(now);
-        // Если скрипт работает днём/вечером (>= 12:00), собираем на следующий день
-        if (now.getHours() >= 12) {
-            targetDate.setDate(targetDate.getDate() + 1);
-        }
+        const targetDate = getCollectionContext(new Date()).deliveryDate;
 
         const d = targetDate.getDate();
         const dStr = String(d).padStart(2, '0');
@@ -195,6 +191,10 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         headerSource: 'explicit' | 'chat-fallback';
         hasReply: boolean;
         isBranchHeader: boolean;
+        isForwarded?: boolean;
+        forwardedFrom?: string;
+        forwardedDate?: string;
+        forwardedTime?: string;
         runKey?: string;
     }
 
@@ -481,6 +481,25 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                                 .filter((marker: { name: string; aliases: string[] } | null): marker is { name: string; aliases: string[] } => marker !== null)
                             : [];
 
+                        // Филиал может быть перенесён на вторую или третью строку
+                        // (например: «в» / «маленькую соду на завтра»). Ищем его
+                        // только в первых трёх непустых строках и не анализируем товары.
+                        const branchCandidates = (chatConfig.branches || []).flatMap((branch: any) => {
+                            const names = [branch.name, ...(branch.aliases || [])]
+                                .filter(Boolean)
+                                .map((name: string) => String(name).trim().toLowerCase())
+                                .filter(Boolean);
+                            return names.map((name: string) => ({ branch, name }));
+                        }).sort((a: { name: string }, b: { name: string }) => b.name.length - a.name.length);
+                        let branchHeaderLine = -1;
+                        for (let i = 0; i < Math.min(3, lines.length); i++) {
+                            const normalizedLine = lines[i].replace(/[,:;.!?()[\]{}"«»„“”]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+                            if (branchCandidates.some(({ name }: { name: string }) => normalizedLine.includes(name))) {
+                                branchHeaderLine = i;
+                                break;
+                            }
+                        }
+
                         if (headerMarkers.length > 0) {
                             // Для чатов с независимыми организациями/адресами проверяем
                             // только первые четыре строки. Все строки до последнего
@@ -492,9 +511,10 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                                     lastMarkerLine = i;
                                 }
                             }
-                            if (lastMarkerLine >= 0) {
-                                headerParts = lines.slice(0, lastMarkerLine + 1);
-                                textLines = lines.slice(lastMarkerLine + 1);
+                            const lastHeaderLine = Math.max(lastMarkerLine, branchHeaderLine);
+                            if (lastHeaderLine >= 0) {
+                                headerParts = lines.slice(0, lastHeaderLine + 1);
+                                textLines = lines.slice(lastHeaderLine + 1);
                             } else {
                                 // Если независимый маркер не найден, всё равно
                                 // проверяем первую строку по branches. Маркеры
@@ -503,10 +523,12 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                                 textLines = lines.slice(1);
                             }
                         } else {
-                            // Без маркеров сохраняем прежнюю структуру: первая строка
-                            // может быть заголовком, а остальные остаются текстом.
-                            headerParts = lines.length > 0 ? [lines[0]] : [];
-                            textLines = lines.slice(1);
+                            // Без маркеров филиал может находиться в любой из
+                            // первых трёх строк. Если его нет, сохраняем прежнюю
+                            // структуру с первой строкой как заголовком.
+                            const lastHeaderLine = branchHeaderLine >= 0 ? branchHeaderLine : (lines.length > 0 ? 0 : -1);
+                            headerParts = lastHeaderLine >= 0 ? lines.slice(0, lastHeaderLine + 1) : [];
+                            textLines = lastHeaderLine >= 0 ? lines.slice(lastHeaderLine + 1) : [];
                         }
                         
                         if (headerParts.length > 0) {
@@ -626,7 +648,9 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
 
                 finalOrders.push({
                     header: header,
-                    text: textBody,
+                    text: msg.isForwarded && msg.forwardedDate && msg.forwardedTime
+                        ? `пересланное сообщение от ${msg.forwardedDate} ${msg.forwardedTime}:\n${msg.text}`
+                        : textBody,
                     time: msg.time,
                     date: msg.date,
                     branchName: detectedBranchName,
@@ -634,6 +658,10 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                     phone: msg.phone || '',
                     chatName: orderBlock.chatName,
                     headerSource,
+                    isForwarded: msg.isForwarded,
+                    forwardedFrom: msg.forwardedFrom,
+                    forwardedDate: msg.forwardedDate,
+                    forwardedTime: msg.forwardedTime,
                     // A message that quotes another message is a reply itself and
                     // must stay separate from the previous run.  The quoted parent
                     // may also receive the reply text, but that retroactive marker
@@ -837,82 +865,8 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         }));
 
         // Текст заказа (Обычный, Calibri 16)
-        // Проверяем, есть ли утренние сообщения.
-        // Время скрывается только если сам заказ написан в воскресенье.
-        // "Воскресные заказы" мы собираем либо в понедельник до 18:00 (дневной сбор), либо в воскресенье после 18:00 (вечерний сбор).
-        const now = new Date();
-        const day = now.getDay();
-        const currentHour = now.getHours();
-        const isSundayBatch = (day === 1 && currentHour < 18) || (day === 0 && currentHour >= 18);
-        
-        const hasMorning = !isSundayBatch && order.blocks.some(b => {
-            if (!b.time) return false;
-            const [hr] = b.time.split(':');
-            const hour = parseInt(hr, 10);
-            return hour >= 6 && hour < 15;
-        });
+        const fullText = formatCollectionBlocks(order.blocks, printedDates, new Date());
 
-        const finalTextBlocks: string[] = [];
-        let printedMorning = false;
-        let printedAfternoon = false;
-        for (const b of order.blocks) {
-            if (b.date && b.time) {
-                const [dayPart, monthPart] = b.date.split('.').map(Number);
-                const messageDate = new Date(now.getFullYear(), monthPart - 1, dayPart);
-                const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                if (messageDate > todayDate) messageDate.setFullYear(messageDate.getFullYear() - 1);
-                const ageDays = Math.floor((todayDate.getTime() - messageDate.getTime()) / 86400000);
-                const oldDateThreshold = day === 1 && currentHour < 18 ? 3 : 2;
-
-                // Сегодня и вчера сохраняют правило 06:00–14:59.
-                // Для более старых дат показываем любое время вместе с датой.
-                if (ageDays >= oldDateThreshold) {
-                    if (!printedDates.has(b.date)) {
-                        printedDates.add(b.date);
-                        finalTextBlocks.push(`(${b.date} ${b.time})\n${b.text}`);
-                    } else {
-                        finalTextBlocks.push(b.text);
-                    }
-                } else {
-                    const [hr] = b.time.split(':');
-                    const messageHour = parseInt(hr, 10);
-                    if (!hasMorning || messageHour < 6 || messageHour >= 15) {
-                        finalTextBlocks.push(b.text);
-                    } else if (!printedMorning) {
-                        printedMorning = true;
-                        finalTextBlocks.push(`(${b.time})\n${b.text}`);
-                    } else {
-                        finalTextBlocks.push(b.text);
-                    }
-                }
-                continue;
-            }
-
-            if (!hasMorning || !b.time) {
-                finalTextBlocks.push(b.text);
-                continue;
-            }
-
-            const [hr] = b.time.split(':');
-            const hour = parseInt(hr, 10);
-            if (hour >= 6 && hour < 15) {
-                if (!printedMorning) {
-                    printedMorning = true;
-                    finalTextBlocks.push(`(${b.time})\n${b.text}`);
-                } else {
-                    finalTextBlocks.push(b.text);
-                }
-            } else {
-                if (!printedAfternoon) {
-                    printedAfternoon = true;
-                    finalTextBlocks.push(`(${b.time})\n${b.text}`);
-                } else {
-                    finalTextBlocks.push(b.text);
-                }
-            }
-        }
-
-        const fullText = finalTextBlocks.join('\n\n');
 
         const lines = fullText.split('\n');
         for (const line of lines) {

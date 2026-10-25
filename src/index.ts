@@ -5,6 +5,7 @@ import { parseWhatsApp } from './parsers/whatsapp';
 import { parseTelegram } from './parsers/telegram';
 import { parseVk } from './parsers/vk';
 import { OrderResult } from './types';
+import { getCollectionContext } from './utils/collection';
 
 // Общие настройки для сборщика и ярлыка рабочего браузера.
 const { loadBrowserConfig } = require('../scripts/browser-config.cjs');
@@ -98,12 +99,7 @@ async function main() {
         console.log(`💾 Все заказы успешно записаны в файл: ${outputPath}\n`);
 
         // Логика названия файла: Заказ на [дата]
-        const now = new Date();
-        const targetDate = new Date(now);
-        // Если время после 12:00 (до 23:59), заказы собираются на завтра
-        if (now.getHours() >= 12) {
-            targetDate.setDate(targetDate.getDate() + 1);
-        }
+        const targetDate = getCollectionContext(new Date()).deliveryDate;
         
         const day = String(targetDate.getDate()).padStart(2, '0');
         const month = String(targetDate.getMonth() + 1).padStart(2, '0');
