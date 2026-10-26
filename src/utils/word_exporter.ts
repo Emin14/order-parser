@@ -30,7 +30,7 @@ const removableGreetingPhrases = [
     'здравствуйте', 'добрый день', 'добрый вечер', 'доброе утро',
     'доброе вечер', 'доброе день', 'доброе ночь', 'доброго дня',
     'доброго вечера', 'доброго утра', 'доброго ночи', 'доброй ночи',
-    'приветствую', 'привет', 'примите заказ'
+    'приветствую', 'привет', 'примите пожалуйста заказ', 'примите заказ'
 ];
 
 // Эти фразы удаляются только когда вся непустая строка состоит из них.
@@ -305,7 +305,6 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         } 
 
         for (const msg of messages) {
-            const originalMessageText = msg.text;
             msg.text = stripGreetings(msg.text);
             msg.text = stripTomorrowPhrase(msg.text, msg.time);
             if (!msg.text) continue;
@@ -586,12 +585,10 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                                     // заголовка и объединения. Остаток исходных
                                     // строк филиала возвращаем в текст заказа,
                                     // чтобы не потерять просьбы и комментарии.
-                                    const originalLines = originalMessageText
-                                        .split('\n')
-                                        .map(line => line.trim())
-                                        .filter(Boolean);
-                                    const originalHeaderLines = originalLines.slice(0, Math.max(branchHeaderLine + 1, 1));
-                                    const originalHeaderText = originalHeaderLines.join(' ');
+                                    // Используем уже очищенный заголовок, чтобы
+                                    // удалённые приветствия и служебные фразы
+                                    // не возвращались после отделения филиала.
+                                    const originalHeaderText = rawHeader;
                                     const branchAliases = [matchedBranch.name, ...(matchedBranch.aliases || [])]
                                         .filter(Boolean)
                                         .map((name: string) => String(name).trim())
@@ -600,8 +597,27 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                                         originalHeaderText.toLocaleLowerCase('ru-RU').includes(alias.toLocaleLowerCase('ru-RU'))
                                     );
                                     if (matchedAlias) {
-                                        const remainder = originalHeaderText
-                                            .replace(new RegExp(matchedAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), ' ')
+                                        const aliasIndex = originalHeaderText.toLocaleLowerCase('ru-RU')
+                                            .indexOf(matchedAlias.toLocaleLowerCase('ru-RU'));
+                                        let beforeAlias = originalHeaderText.slice(0, aliasIndex).trim();
+                                        // Убираем предлог только если он находится в той же
+                                        // строке, что и филиал. Так «на плазу» очищается,
+                                        // а «ЧЕБУРЕЧНАЯ НА» в предыдущей строке сохраняется.
+                                        const aliasLine = [...headerParts].reverse().find((line: string) =>
+                                            line.toLocaleLowerCase('ru-RU').includes(matchedAlias.toLocaleLowerCase('ru-RU'))
+                                        ) || '';
+                                        const aliasLineIndex = aliasLine.toLocaleLowerCase('ru-RU')
+                                            .indexOf(matchedAlias.toLocaleLowerCase('ru-RU'));
+                                        const aliasLinePrefix = aliasLine.slice(0, aliasLineIndex).trim();
+                                        if (aliasLinePrefix) {
+                                            beforeAlias = beforeAlias
+                                                .replace(/(?:^|\s)(?:в|на|к|во|ко)\s*$/iu, '')
+                                                .trim();
+                                        }
+                                        const afterAlias = originalHeaderText.slice(aliasIndex + matchedAlias.length).trim();
+                                        const remainder = [beforeAlias, afterAlias]
+                                            .filter(Boolean)
+                                            .join(' ')
                                             .replace(/\s+/g, ' ')
                                             .trim();
                                         if (remainder) {
