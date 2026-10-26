@@ -63,8 +63,10 @@ function stripGreetingsFromFirstLines(text: string): string {
     return lines.map((line) => {
         if (!line.trim()) return line;
         checkedLines += 1;
-        if (checkedLines > 3) return line;
+        // Точные служебные строки проверяем во всём сообщении, включая
+        // строки после составного заголовка филиала.
         if (isRemovableWholeLine(line)) return '';
+        if (checkedLines > 3) return line;
         const cleanedLine = line.replace(greetingRegex, ' ').replace(/[ \t]{2,}/g, ' ').trim();
         // После удаления вводной фразы могла остаться самостоятельная фраза
         // из списка whole-line (например, «Добрый день! Адам» -> «Адам»).
