@@ -1,6 +1,6 @@
 import { BrowserContext, Page } from 'playwright';
 import { OrderResult, MessageItem } from '../types';
-import { checkOrderDate, getBannerDateCategory, isMessageActual } from '../utils/date';
+import { checkOrderDate, getBannerDateCategory, getCategoryDate, isMessageActual } from '../utils/date';
 import { findPageByUrl } from '../utils/browser_pages';
 
 function processRawItems(items: any[]): any[] {
@@ -36,7 +36,10 @@ function processRawItems(items: any[]): any[] {
                 const timeMatch = dateTime.match(/\d{2}:\d{2}/);
                 if (timeMatch) time = timeMatch[0];
                 const dateMatch = dateTime.match(/\d{2}\.\d{2}\.\d{4}/);
-                if (dateMatch) messageDate = dateMatch[0].slice(0, 5);
+                if (dateMatch) {
+                    messageDate = dateMatch[0].slice(0, 5);
+                    explicitDateCat = getBannerDateCategory(dateMatch[0]);
+                }
                 strPreText = match[2].replace(/^~/, '');
                 
                 const now = new Date();
@@ -151,7 +154,7 @@ function filterActualMessages(items: any[], chatDateFallback: string = ''): Mess
                     sender: item.sender || '',
                     phone: item.phone || '',
                     time: item.time || '',
-                    date: item.date || undefined,
+                    date: item.date || getCategoryDate(effCategory),
                     text: item.text.trim(),
                     ...(item.replyTo ? { replyTo: item.replyTo } : {})
                 });

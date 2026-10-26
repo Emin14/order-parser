@@ -10,8 +10,21 @@ export type { ShiftMode } from './collection';
 const DAYS_EN = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const DAYS_RU = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
 
-const MONTHS_EN = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
-const MONTHS_RU = ['январ', 'феврал', 'март', 'апрел', 'ма', 'июн', 'июл', 'август', 'сентябр', 'октябр', 'ноябр', 'декабр'];
+const MONTHS = [
+    { en: 'january', enShort: 'jan', ru: 'январ', ruShort: 'янв' },
+    { en: 'february', enShort: 'feb', ru: 'феврал', ruShort: 'фев' },
+    { en: 'march', enShort: 'mar', ru: 'март', ruShort: 'мар' },
+    { en: 'april', enShort: 'apr', ru: 'апрел', ruShort: 'апр' },
+    { en: 'may', enShort: 'may', ru: 'май', ruShort: 'май' },
+    { en: 'june', enShort: 'jun', ru: 'июн', ruShort: 'июн' },
+    { en: 'july', enShort: 'jul', ru: 'июл', ruShort: 'июл' },
+    { en: 'august', enShort: 'aug', ru: 'август', ruShort: 'авг' },
+    { en: 'september', enShort: 'sep', ru: 'сентябр', ruShort: 'сен' },
+    { en: 'october', enShort: 'oct', ru: 'октябр', ruShort: 'окт' },
+    { en: 'november', enShort: 'nov', ru: 'ноябр', ruShort: 'ноя' },
+    { en: 'december', enShort: 'dec', ru: 'декабр', ruShort: 'дек' },
+] as const;
+const MONTH_TOKENS = MONTHS.flatMap(month => [month.en, month.enShort, month.ru, month.ruShort]).join('|');
 
 /**
  * Определение текущего режима сбора
@@ -19,6 +32,15 @@ const MONTHS_RU = ['январ', 'феврал', 'март', 'апрел', 'ма
 export function getShiftMode(now: Date = new Date()): { mode: ShiftMode; baseDate: Date } {
     const collection = getCollectionContext(now);
     return { mode: collection.mode, baseDate: collection.shiftStart };
+}
+
+/** Возвращает календарную дату категории в формате DD.MM для диагностики и экспорта. */
+export function getCategoryDate(category: MessageCategory, now: Date = new Date()): string | undefined {
+    if (category === 'older') return undefined;
+    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (category === 'yesterday') date.setDate(date.getDate() - 1);
+    if (category === 'dayBeforeYesterday') date.setDate(date.getDate() - 2);
+    return `${String(date.getDate()).padStart(2, '0')}.${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
 /**
@@ -189,6 +211,9 @@ export function parseVkDate(dateRaw: string): CheckOrderResult {
         // Если сегодня понедельник (до 18:00), то позавчера (суббота) берется с 11:00
         if (dayOfWeek === 1 && mode === 'DAY') {
             const timeMatch = text.match(/(\d{1,2}):(\d{2})/);
+            if (!timeMatch) {
+                return { isActual: true, dateStr: text, reason: `Календарная дата (суббота, время проверит общий фильтр)` };
+            }
             if (timeMatch && parseInt(timeMatch[1], 10) >= 11) {
                  return { isActual: true, dateStr: text, reason: `Календарная дата (позавчера суббота с 11:00)` };
             }
@@ -223,7 +248,7 @@ export function checkOrderDate(chatText: string): CheckOrderResult {
             dateStr = line;
             break;
         }
-        if (/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d{1,2}\s+[а-я]+|\d{2}\.\d{2})/i.test(line)) {
+        if (new RegExp(`^(?:${MONTH_TOKENS}|\\d{1,2}\\s+(?:${MONTH_TOKENS})|\\d{2}\\.\\d{2})`, 'i').test(line)) {
             dateStr = line;
             break;
         }
@@ -282,7 +307,7 @@ export function checkOrderDate(chatText: string): CheckOrderResult {
         const matchesYesterday = dl.startsWith(yDayEn) || dl.startsWith(yDayRu);
         
         // В понедельник дневной сбор: разрешаем и субботу (позавчера)
-        const isMondayAndSaturday = dayOfWeek === 1 && mode === 'DAY' && (dl.startsWith('sat') || dl.startsWith('сб') || dl.startsWith('суббота'));
+        const isMondayAndSaturday = dayOfWeek === 1 && (mode === 'DAY' || mode === 'EVENING_NIGHT') && (dl.startsWith('sat') || dl.startsWith('сб') || dl.startsWith('суббота'));
 
         if (matchesYesterday || isMondayAndSaturday) {
             if (mode === 'EVENING_NIGHT' && now.getHours() >= 18) {
@@ -297,6 +322,19 @@ export function checkOrderDate(chatText: string): CheckOrderResult {
         } else {
             return { isActual: false, dateStr, reason: `Старый день недели (${dateStr})` };
         }
+    }
+
+    // Полные даты в списке Telegram: «October 25», «25 октября».
+    // Используем тот же разбор календарных дат, что и для баннеров внутри чата.
+    const calendarCategory = getBannerDateCategory(dateStr);
+    if (calendarCategory === 'today') {
+        return { isActual: true, dateStr, reason: `Календарная дата сегодня (${dateStr})` };
+    }
+    if (calendarCategory === 'yesterday') {
+        return { isActual: true, dateStr, reason: `Календарная дата вчера (${dateStr})` };
+    }
+    if (calendarCategory === 'dayBeforeYesterday' && dayOfWeek === 1) {
+        return { isActual: true, dateStr, reason: `Календарная дата субботы в понедельник (${dateStr})` };
     }
 
     // 4. Старые даты
@@ -326,13 +364,12 @@ export function getBannerDateCategory(bannerText: string): 'today' | 'yesterday'
     const matchesCalendarDate = (targetDate: Date) => {
         const day = targetDate.getDate();
         const monthIdx = targetDate.getMonth();
-        const mEn = MONTHS_EN[monthIdx];
-        const mRu = MONTHS_RU[monthIdx];
+        const month = MONTHS[monthIdx];
 
         const dayRegex = new RegExp(`(?:^|\\D)0?${day}(?:\\D|$)`);
         if (!dayRegex.test(clean)) return false;
 
-        if (clean.includes(mEn) || clean.includes(mRu)) return true;
+        if (clean.includes(month.en) || clean.includes(month.enShort) || clean.includes(month.ru) || clean.includes(month.ruShort)) return true;
         const padMonth = String(monthIdx + 1).padStart(2, '0');
         if (clean.includes(`${day}.${padMonth}`) || clean.includes(`0${day}.${padMonth}`)) return true;
 

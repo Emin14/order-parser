@@ -2,7 +2,7 @@ import { BrowserContext, Page } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import { OrderResult, MessageItem } from '../types';
-import { parseVkDate, getBannerDateCategory, isMessageActual } from '../utils/date';
+import { parseVkDate, getBannerDateCategory, getCategoryDate, isMessageActual } from '../utils/date';
 import { findPageByUrl } from '../utils/browser_pages';
 
 const VK_DETAIL_LOG = path.resolve(process.cwd(), 'vk_detail.log');
@@ -297,6 +297,7 @@ function filterActualVkMessages(items: any[], chatName: string, chatDateFallback
                 sender: item.sender || lastSender || chatName,
                 phone: '',
                 time: item.time || '',
+                date: item.date || getCategoryDate(msgCategory),
                 text: item.text.trim()
             };
             if (item.isForwarded) {
