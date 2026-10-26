@@ -4,6 +4,7 @@ import * as path from 'path';
 import { OrderResult, MessageItem } from '../types';
 import { checkOrderDate, getBannerDateCategory, isMessageActual } from '../utils/date';
 import { findPageByUrl } from '../utils/browser_pages';
+import { collectionSpy } from '../utils/collection';
 
 const TELEGRAM_SPY_LOG = path.resolve(process.cwd(), 'telegram_spy.log');
 function telegramSpy(message: string): void {
@@ -16,6 +17,7 @@ function telegramSpy(message: string): void {
 
 function filterActualTelegramMessages(items: any[], chatName: string, chatDateFallback: string = ''): MessageItem[] {
     let validMessages: MessageItem[] = [];
+    collectionSpy({ messenger: 'Telegram', stage: 'filter-start', chat: chatName, items: items.length, fallback: chatDateFallback });
     
     let fallbackCategory: 'today' | 'yesterday' | 'dayBeforeYesterday' | 'older' = 'today';
     if (chatDateFallback) {
@@ -36,6 +38,7 @@ function filterActualTelegramMessages(items: any[], chatName: string, chatDateFa
     for (const item of items) {
         if (item.type === 'banner') {
             currentCategory = getBannerDateCategory(item.text);
+            collectionSpy({ messenger: 'Telegram', stage: 'date-banner', chat: chatName, text: item.text, category: currentCategory });
             telegramSpy(`FILTER_DATE chat=${JSON.stringify(chatName)} text=${JSON.stringify(item.text)} category=${currentCategory}`);
             lastSender = "";
             continue;
@@ -54,6 +57,7 @@ function filterActualTelegramMessages(items: any[], chatName: string, chatDateFa
                 ? getBannerDateCategory(item.dateText)
                 : currentCategory;
             const isActual = isMessageActual(messageCategory, item.time, item.text);
+            collectionSpy({ messenger: 'Telegram', stage: 'filter-message', chat: chatName, category: messageCategory, time: item.time || '', accepted: isActual, preview: item.text.slice(0, 180) });
             telegramSpy(`FILTER chat=${JSON.stringify(chatName)} accepted=${isActual} category=${messageCategory} time=${JSON.stringify(item.time)} preview=${JSON.stringify(item.text.slice(0, 180))}`);
             
             if (isActual) {
@@ -72,6 +76,7 @@ function filterActualTelegramMessages(items: any[], chatName: string, chatDateFa
     }
     
     console.log(`Итого актуальных сообщений в чате: ${validMessages.length}\n=========================================\n`);
+    collectionSpy({ messenger: 'Telegram', stage: 'filter-end', chat: chatName, accepted: validMessages.length });
     return validMessages;
 }
 
@@ -81,6 +86,7 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
 
     console.log(`   📜 [Telegram] Прокручиваем историю [${fullChatName}] вверх...`);
     telegramSpy(`START chat=${JSON.stringify(fullChatName)} listDate=${JSON.stringify(chatDateStr)}`);
+    collectionSpy({ messenger: 'Telegram', stage: 'chat-start', chat: fullChatName, listDate: chatDateStr });
     try { const view = page.viewportSize(); if (view) await page.mouse.move(view.width / 2, view.height / 2); } catch (e) {}
 
     let rawElementsData: any[] = [];
@@ -271,6 +277,7 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
 
     const filteredMessages = filterActualTelegramMessages(rawElementsData, fullChatName, chatDateStr);
     telegramSpy(`END chat=${JSON.stringify(fullChatName)} collected=${rawElementsData.length} accepted=${filteredMessages.length}`);
+    collectionSpy({ messenger: 'Telegram', stage: 'chat-end', chat: fullChatName, raw: rawElementsData.length, accepted: filteredMessages.length });
     if (filteredMessages.length > 0) {
         return {
             messenger: 'Telegram',
@@ -328,6 +335,7 @@ export async function parseTelegram(context: BrowserContext): Promise<OrderResul
         let bottomText = await bottomChat.innerText().catch(() => "");
         
         let check = checkOrderDate(bottomText);
+        collectionSpy({ messenger: 'Telegram', stage: 'chat-list-check', position: 'bottom', preview: bottomText.slice(0, 180), date: check.dateStr, accepted: check.isActual, reason: check.reason });
         if (check.isActual) {
             console.log(`⬇️ [Telegram] Нижний чат актуален (${check.dateStr} - ${check.reason}). Скроллим вниз...`);
             await bottomChat.hover();
@@ -371,6 +379,7 @@ export async function parseTelegram(context: BrowserContext): Promise<OrderResul
                 : chatText.split('\n')[0].trim();
 
             let check = checkOrderDate(chatText);
+            collectionSpy({ messenger: 'Telegram', stage: 'chat-list-check', position: i, chat: chatName, preview: chatText.slice(0, 180), date: check.dateStr, accepted: check.isActual, reason: check.reason });
             
             // Если дата старая, просто пропускаем (ведь мы идем снизу вверх)
             if (!check.isActual) continue;

@@ -2,6 +2,7 @@ import { BrowserContext, Page } from 'playwright';
 import { OrderResult, MessageItem } from '../types';
 import { checkOrderDate, getBannerDateCategory, getCategoryDate, isMessageActual } from '../utils/date';
 import { findPageByUrl } from '../utils/browser_pages';
+import { collectionSpy } from '../utils/collection';
 
 function processRawItems(items: any[]): any[] {
     let lastSender = "";
@@ -115,6 +116,7 @@ function processRawItems(items: any[]): any[] {
 
 function filterActualMessages(items: any[], chatDateFallback: string = ''): MessageItem[] {
     let validMessages: MessageItem[] = [];
+    collectionSpy({ messenger: 'WhatsApp', stage: 'filter-start', items: items.length, fallback: chatDateFallback });
     
     // Определяем начальную категорию по дате из списка чатов, если нет баннеров
     let fallbackCategory: 'today' | 'yesterday' | 'dayBeforeYesterday' | 'older' = 'today';
@@ -140,6 +142,7 @@ function filterActualMessages(items: any[], chatDateFallback: string = ''): Mess
     for (let item of items) {
         if (item.type === 'banner') {
             currentCategory = getBannerDateCategory(item.text);
+            collectionSpy({ messenger: 'WhatsApp', stage: 'date-banner', text: item.text, category: currentCategory });
             continue; 
         }
         
@@ -149,7 +152,9 @@ function filterActualMessages(items: any[], chatDateFallback: string = ''): Mess
             const effCategory = item.explicitDateCat || currentCategory;
             
             // Проверяем актуальность с учетом категории даты, времени и текста ("на завтра")
-            if (isMessageActual(effCategory, item.time, item.text)) {
+            const isActual = isMessageActual(effCategory, item.time, item.text);
+            collectionSpy({ messenger: 'WhatsApp', stage: 'filter-message', category: effCategory, time: item.time || '', accepted: isActual, preview: item.text.slice(0, 180) });
+            if (isActual) {
                 validMessages.push({
                     sender: item.sender || '',
                     phone: item.phone || '',
@@ -162,6 +167,7 @@ function filterActualMessages(items: any[], chatDateFallback: string = ''): Mess
         }
     }
     
+    collectionSpy({ messenger: 'WhatsApp', stage: 'filter-end', accepted: validMessages.length });
     return validMessages;
 }
 

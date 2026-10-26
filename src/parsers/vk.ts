@@ -4,6 +4,7 @@ import * as path from 'path';
 import { OrderResult, MessageItem } from '../types';
 import { parseVkDate, getBannerDateCategory, getCategoryDate, isMessageActual } from '../utils/date';
 import { findPageByUrl } from '../utils/browser_pages';
+import { collectionSpy } from '../utils/collection';
 
 const VK_DETAIL_LOG = path.resolve(process.cwd(), 'vk_detail.log');
 function logVkDetail(stage: string, data: unknown): void {
@@ -279,6 +280,7 @@ function filterActualVkMessages(items: any[], chatName: string, chatDateFallback
 
     let lastSender = "";
 
+    collectionSpy({ messenger: 'VK', stage: 'filter-start', chat: chatName, items: items.length, fallback: chatDateFallback });
     for (const item of items) {
         if (item.type !== 'message') continue;
         if (!item.text) continue;
@@ -290,6 +292,7 @@ function filterActualVkMessages(items: any[], chatName: string, chatDateFallback
         let msgCategory = item.bannerDate ? getBannerDateCategory(item.bannerDate) : fallbackCategory;
 
         const isActual = isMessageActual(msgCategory, item.time, item.text);
+        collectionSpy({ messenger: 'VK', stage: 'filter-message', chat: chatName, category: msgCategory, time: item.time || '', accepted: isActual, preview: item.text.slice(0, 180) });
         console.log(`   🔎 [VK-FILTER] [${chatName}] time=${item.time}, text="${item.text.slice(0, 15)}...", bannerDate=${item.bannerDate}, cat=${msgCategory} -> isActual=${isActual}`);
 
         if (isActual) {
@@ -314,6 +317,7 @@ function filterActualVkMessages(items: any[], chatName: string, chatDateFallback
     }
 
     console.log(`🕵️ [VK spy] Фильтрация [${chatName}]: вход=${items.length}, принято=${validMessages.length}, отброшено=${items.length - validMessages.length}, дата чата=${JSON.stringify(chatDateFallback)}, fallback=${fallbackCategory}`);
+    collectionSpy({ messenger: 'VK', stage: 'filter-end', chat: chatName, accepted: validMessages.length });
     return validMessages;
 }
 
@@ -580,6 +584,7 @@ async function extractMessagesFromOpenChat(page: Page, chatName: string, chatDat
         bannerDate: item.bannerDate
     })));
     console.log(`🕵️ [VK spy] Извлечено [${chatName}]: сырых=${rawItems.length}, перед фильтрацией=${sortedRawItems.length}, даты=${JSON.stringify([...new Set(sortedRawItems.map(item => item.bannerDate || '(нет даты)'))].slice(0, 10))}`);
+    collectionSpy({ messenger: 'VK', stage: 'extracted', chat: chatName, raw: rawItems.length, sorted: sortedRawItems.length });
     const filtered = filterActualVkMessages(sortedRawItems, chatName, chatDateStr);
     logVkDetail(`filtered-items chat=${chatName}`, filtered.map(item => ({ sender: item.sender, time: item.time, text: item.text, replyTo: item.replyTo })));
     return filtered;

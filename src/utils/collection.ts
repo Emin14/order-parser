@@ -15,6 +15,20 @@ export interface CollectionTextBlock {
     text: string;
 }
 
+/** Диагностика отбора сообщений; не влияет на результат проверки. */
+export function collectionSpy(entry: Record<string, unknown>): void {
+    try {
+        const fs = require('fs') as typeof import('fs');
+        const path = require('path') as typeof import('path');
+        fs.appendFileSync(
+            path.resolve(process.cwd(), 'collection_spy.log'),
+            `[${new Date().toISOString()}] ${JSON.stringify(entry)}\n`
+        );
+    } catch {
+        // Диагностика не должна прерывать сбор заказов.
+    }
+}
+
 type CollectionPart = 'previous-period' | 'non-working-day' | 'current-period';
 
 function getCollectionPart(messageDate: Date, now: Date): CollectionPart {
@@ -60,7 +74,10 @@ export function isMessageInCollection(
     isForTomorrow: (text: string, referenceDate: Date) => boolean,
     now: Date = new Date()
 ): boolean {
-    if (category === 'older') return false;
+    if (category === 'older') {
+        collectionSpy({ stage: 'common-filter', category, timeStr, result: false, reason: 'older' });
+        return false;
+    }
     const context = getCollectionContext(now);
     const dayOfWeek = now.getDay();
     const match = (timeStr || '').match(/(\d{1,2}):(\d{2})/);
@@ -74,43 +91,51 @@ export function isMessageInCollection(
         }
         return false;
     };
+    const finish = (result: boolean, reason: string): boolean => {
+        collectionSpy({
+            stage: 'common-filter', category, timeStr,
+            messageText: (messageText || '').slice(0, 180),
+            now: now.toISOString(), mode: context.mode, dayOfWeek, result, reason
+        });
+        return result;
+    };
     if (context.mode === 'EVENING_NIGHT') {
         if (now.getHours() >= 18) {
-            if (category === 'today') return dayOfWeek === 0 || checkTargetTime(hour, messageText, now);
+            if (category === 'today') return finish(dayOfWeek === 0 || checkTargetTime(hour, messageText, now), 'evening today');
             if (category === 'yesterday' && dayOfWeek === 0) {
                 const reference = new Date(now); reference.setDate(reference.getDate() - 1);
-                return checkTargetTime(hour, messageText, reference);
+                return finish(checkTargetTime(hour, messageText, reference), 'sunday evening yesterday');
             }
-            return false;
+            return finish(false, 'evening category outside period');
         }
         if (category === 'today') {
             if (hour >= 12) {
                 const reference = new Date(now); reference.setDate(reference.getDate() - 1);
-                return checkTargetTime(hour, messageText, reference);
+                return finish(checkTargetTime(hour, messageText, reference), 'night today after noon');
             }
-            return hour < 6;
+            return finish(hour < 6, 'night today before 06:00');
         }
         if (category === 'yesterday') {
             const reference = new Date(now); reference.setDate(reference.getDate() - 1);
-            return checkTargetTime(hour, messageText, reference);
+            return finish(checkTargetTime(hour, messageText, reference), 'night yesterday');
         }
-        return false;
+        return finish(false, 'night category outside period');
     }
     if (category === 'dayBeforeYesterday') {
-        if (dayOfWeek !== 1) return false;
+        if (dayOfWeek !== 1) return finish(false, 'dayBeforeYesterday outside Monday');
         const reference = new Date(now); reference.setDate(reference.getDate() - 2);
-        return checkTargetTime(hour, messageText, reference);
+        return finish(checkTargetTime(hour, messageText, reference), 'Monday dayBeforeYesterday');
     }
     if (category === 'yesterday') {
-        if (dayOfWeek === 1) return true;
+        if (dayOfWeek === 1) return finish(true, 'Monday yesterday');
         const reference = new Date(now); reference.setDate(reference.getDate() - 1);
-        return checkTargetTime(hour, messageText, reference);
+        return finish(checkTargetTime(hour, messageText, reference), 'yesterday');
     }
     if (category === 'today') {
-        if (dayOfWeek === 0 || now.getHours() < 15) return true;
-        return hour < 15 || (hour === 15 && minute === 0);
+        if (dayOfWeek === 0 || now.getHours() < 15) return finish(true, 'today Sunday/day');
+        return finish(hour < 15 || (hour === 15 && minute === 0), 'today after 15:00');
     }
-    return false;
+    return finish(false, 'unhandled category');
 }
 
 /** Формирует текст блоков с едиными правилами показа даты и времени. */
