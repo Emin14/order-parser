@@ -23,6 +23,7 @@ function cleanBrandName(rawName: string): string {
         .replace(/🍅|🍊|🧀|🍓/g, '') // Убираем эмодзи
         .replace(/[\(\[\{].*?[\)\]\}]/g, '') // Убираем скобки
         .replace(/\s+/g, ' ')
+        .replace(/^[\s:;,.!?\-–—]+|[\s:;,.!?\-–—]+$/g, '')
         .trim();
 }
 
