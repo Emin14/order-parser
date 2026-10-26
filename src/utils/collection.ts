@@ -30,6 +30,7 @@ export function collectionSpy(entry: Record<string, unknown>): void {
 }
 
 type CollectionPart = 'previous-period' | 'non-working-day' | 'current-period';
+type BlockDisplayPart = CollectionPart | 'previous-day-time' | 'previous-day-none';
 
 function getCollectionPart(messageDate: Date, now: Date): CollectionPart {
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -44,6 +45,24 @@ function getCollectionPart(messageDate: Date, now: Date): CollectionPart {
     }
     if (messageDate.getTime() < today.getTime()) return 'previous-period';
     return 'current-period';
+}
+
+/**
+ * Классифицирует отображение сообщения по календарной дате и времени.
+ * Отбор сообщений этим правилом не меняется.
+ */
+function getBlockDisplayPart(messageDate: Date, time: string, now: Date): BlockDisplayPart {
+    const collectionPart = getCollectionPart(messageDate, now);
+    if (collectionPart !== 'previous-period') return collectionPart;
+
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const messageDay = new Date(messageDate.getFullYear(), messageDate.getMonth(), messageDate.getDate());
+    const dayDistance = Math.round((today.getTime() - messageDay.getTime()) / 86400000);
+    if (dayDistance === 1) {
+        const hour = Number.parseInt((time || '').split(':')[0], 10);
+        return Number.isFinite(hour) && hour >= 15 ? 'previous-day-none' : 'previous-day-time';
+    }
+    return 'previous-period';
 }
 
 export function getCollectionContext(now: Date = new Date()): CollectionContext {
@@ -152,7 +171,8 @@ export function formatCollectionBlocks(
         const messageDate = new Date(now.getFullYear(), month - 1, day);
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         if (messageDate > today) messageDate.setFullYear(messageDate.getFullYear() - 1);
-        return getCollectionPart(messageDate, now) === 'current-period';
+        const displayPart = getBlockDisplayPart(messageDate, block.time, now);
+        return displayPart === 'current-period' || displayPart === 'previous-day-time';
     });
     const result: string[] = [];
     let printedMorning = false;
@@ -182,15 +202,28 @@ export function formatCollectionBlocks(
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         if (messageDate > today) messageDate.setFullYear(messageDate.getFullYear() - 1);
 
-        const collectionPart = getCollectionPart(messageDate, now);
-        if (collectionPart === 'previous-period') {
+        const displayPart = getBlockDisplayPart(messageDate, block.time, now);
+        if (displayPart === 'previous-day-none') {
+            result.push(block.text);
+            continue;
+        }
+        if (displayPart === 'previous-day-time') {
+            const hour = Number.parseInt(block.time.split(':')[0], 10);
+            if (!hasMorning || hour < 6 || hour >= 15) result.push(block.text);
+            else if (!printedMorning) {
+                printedMorning = true;
+                result.push(`(${block.time})\n${block.text}`);
+            } else result.push(block.text);
+            continue;
+        }
+        if (displayPart === 'previous-period') {
             if (!printedDates.has(block.date)) {
                 printedDates.add(block.date);
                 result.push(`(${block.date} ${block.time})\n${block.text}`);
             } else result.push(block.text);
             continue;
         }
-        if (collectionPart === 'non-working-day') {
+        if (displayPart === 'non-working-day') {
             result.push(block.text);
             continue;
         }
