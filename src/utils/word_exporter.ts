@@ -622,6 +622,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                                             .filter(Boolean)
                                             .join(' ')
                                             .replace(/\s+/g, ' ')
+                                            .replace(/^[\s:;,.!?\-–—]+|[\s:;,.!?\-–—]+$/g, '')
                                             .trim();
                                         if (remainder) {
                                             textBody = [remainder, ...textLines].join('\n').trim();
