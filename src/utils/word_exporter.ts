@@ -3,6 +3,7 @@ import * as path from 'path';
 import { Document, Paragraph, TextRun, Packer } from 'docx';
 import { OrderResult, MessageItem } from '../types';
 import { formatCollectionBlocks, getCollectionContext } from './collection';
+import { getBannerDateCategory, isMessageActual } from './date';
 
 const EXPORT_DETAIL_LOG = path.resolve(process.cwd(), 'export_detail.log');
 function logExportDetail(stage: string, data: unknown): void {
@@ -308,6 +309,32 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         } 
 
         for (const msg of messages) {
+            if (msg.isForwarded && msg.forwardedText) {
+                const forwardedCategory = getBannerDateCategory(msg.forwardedDate || '');
+                const forwardedActual = msg.forwardedDate && msg.forwardedTime
+                    ? isMessageActual(forwardedCategory, msg.forwardedTime, msg.forwardedText)
+                    // Если VK показал только относительное «3ч», оригинал
+                    // относится к тому же актуальному внешнему сообщению.
+                    : true;
+                (msg as any)._forwardedSourceActual = forwardedActual;
+                (msg as any)._forwardedSourceText = msg.forwardedText;
+                const forwardedOuterText = stripGreetings(msg.forwardedOuterText || '');
+                const outerLines = forwardedOuterText.split('\n').map((line: string) => line.trim()).filter(Boolean);
+                // Одна строка считается внешним заголовком даже с цифрами:
+                // адреса филиалов часто содержат номер (например, «Татарская 2»).
+                // Отдельный «+» обозначает добавку и оставляет текст после пересылки;
+                // «+7» в телефоне заголовок не блокирует.
+                const outerHeader = outerLines.length === 1 &&
+                    !/(?:добавьте|примите|заказ|пожалуйста|здравствуйте|добрый|доброе|привет)/i.test(outerLines[0]) &&
+                    !/(^|\s)\+(?!\d)/.test(outerLines[0])
+                    ? outerLines[0]
+                    : '';
+                (msg as any)._forwardedOuterText = outerHeader ? '' : (msg.forwardedOuterText || '');
+                (msg as any)._forwardedOuterHeader = outerHeader;
+                // Заголовок и филиал должны определяться по оригинальному
+                // пересланному заказу, кроме отдельного внешнего заголовка.
+                msg.text = outerHeader ? `${outerHeader}\n${msg.forwardedText}` : msg.forwardedText;
+            }
             msg.text = stripGreetings(msg.text);
             msg.text = stripTomorrowPhrase(msg.text, msg.time);
             if (!msg.text) continue;
@@ -688,11 +715,25 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                     headerSource = 'explicit';
                 }
 
+                const forwardedOuterText = (msg as any)._forwardedOuterText
+                    ? stripGreetings((msg as any)._forwardedOuterText)
+                    : '';
+                const forwardedSourceActual = (msg as any)._forwardedSourceActual;
+                let outputText = textBody;
+                if (msg.isForwarded) {
+                    if (!forwardedSourceActual && msg.forwardedDate && msg.forwardedTime) {
+                        outputText = `пересланное сообщение от ${msg.forwardedDate} ${msg.forwardedTime}:\n${textBody}`;
+                        if (forwardedOuterText) {
+                            outputText += `\n\n(${msg.time})\n${forwardedOuterText}`;
+                        }
+                    } else if (forwardedOuterText) {
+                        outputText = [textBody, forwardedOuterText].filter(Boolean).join('\n');
+                    }
+                }
+
                 finalOrders.push({
                     header: header,
-                    text: msg.isForwarded && msg.forwardedDate && msg.forwardedTime
-                        ? `пересланное сообщение от ${msg.forwardedDate} ${msg.forwardedTime}:\n${msg.text}`
-                        : textBody,
+                    text: outputText,
                     time: msg.time,
                     date: msg.date,
                     branchName: detectedBranchName,

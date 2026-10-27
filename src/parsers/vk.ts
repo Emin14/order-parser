@@ -147,6 +147,8 @@ function extractVkElementsFromDom(): any[] {
             let forwardedFrom = '';
             let forwardedDate = '';
             let forwardedTime = '';
+            let outerText = '';
+            let forwardedText = '';
 
             const forwardedNode = el.querySelector('.ForwardedMessageNew, [class*="ForwardedMessage"]');
             if (forwardedNode) {
@@ -204,6 +206,8 @@ function extractVkElementsFromDom(): any[] {
                         const isForwarded = Boolean(tNode.closest('.ForwardedMessageNew, [class*="ForwardedMessage"]'));
                         const separator = !combinedText ? '' : (isForwarded ? '\n' : '\n---\n');
                         combinedText += separator + txt;
+                        if (isForwarded) forwardedText += `${forwardedText ? '\n' : ''}${txt}`;
+                        else outerText += `${outerText ? '\n' : ''}${txt}`;
                     }
                 }
                 cleanText = combinedText;
@@ -241,11 +245,13 @@ function extractVkElementsFromDom(): any[] {
                 if (replyTo) {
                     msgObj.replyTo = replyTo;
                 }
-                if (forwardedFrom && forwardedDate && forwardedTime) {
+                if (forwardedNode && forwardedText) {
                     msgObj.isForwarded = true;
                     msgObj.forwardedFrom = forwardedFrom;
                     msgObj.forwardedDate = forwardedDate;
                     msgObj.forwardedTime = forwardedTime;
+                    msgObj.forwardedText = forwardedText.trim();
+                    msgObj.forwardedOuterText = outerText.trim();
                 }
                 results.push(msgObj);
             }
@@ -308,6 +314,8 @@ function filterActualVkMessages(items: any[], chatName: string, chatDateFallback
                 msgObj.forwardedFrom = item.forwardedFrom;
                 msgObj.forwardedDate = item.forwardedDate;
                 msgObj.forwardedTime = item.forwardedTime;
+                msgObj.forwardedText = item.forwardedText;
+                msgObj.forwardedOuterText = item.forwardedOuterText;
             }
             if (item.replyTo) {
                 msgObj.replyTo = item.replyTo;
@@ -316,9 +324,20 @@ function filterActualVkMessages(items: any[], chatName: string, chatDateFallback
         }
     }
 
-    console.log(`🕵️ [VK spy] Фильтрация [${chatName}]: вход=${items.length}, принято=${validMessages.length}, отброшено=${items.length - validMessages.length}, дата чата=${JSON.stringify(chatDateFallback)}, fallback=${fallbackCategory}`);
-    collectionSpy({ messenger: 'VK', stage: 'filter-end', chat: chatName, accepted: validMessages.length });
-    return validMessages;
+    const normalizeForwardedText = (value: string): string =>
+        (value || '').toLocaleLowerCase('ru-RU').replace(/\s+/g, ' ').trim();
+    const forwardedBodies = new Set(
+        validMessages
+            .filter((message: any) => message.isForwarded && message.forwardedText)
+            .map((message: any) => normalizeForwardedText(message.forwardedText))
+    );
+    const deduplicatedMessages = validMessages.filter((message: any) =>
+        message.isForwarded || !forwardedBodies.has(normalizeForwardedText(message.text))
+    );
+
+    console.log(`🕵️ [VK spy] Фильтрация [${chatName}]: вход=${items.length}, принято=${deduplicatedMessages.length}, отброшено=${items.length - deduplicatedMessages.length}, дата чата=${JSON.stringify(chatDateFallback)}, fallback=${fallbackCategory}`);
+    collectionSpy({ messenger: 'VK', stage: 'filter-end', chat: chatName, accepted: deduplicatedMessages.length });
+    return deduplicatedMessages;
 }
 
 /**

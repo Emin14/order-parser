@@ -9,6 +9,8 @@ export interface MessageItem {
     forwardedFrom?: string;
     forwardedDate?: string;
     forwardedTime?: string;
+    forwardedText?: string;
+    forwardedOuterText?: string;
     replyTo?: {
         sender: string;
         phone?: string;
