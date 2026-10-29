@@ -97,12 +97,15 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
     for (let step = 1; step <= 40; step++) {
         const cur = await page.evaluate(() => {
             const container = document.querySelector('.bubbles, .messages-layout, #column-center') || document;
-            const bubbles = Array.from(container.querySelectorAll('.bubble'));
+            // Telegram использует две разметки: старую `.bubble` и новую
+            // `.Message.message-list-item`. Обрабатываем обе, сохраняя старую
+            // ветку без изменений.
+            const bubbles = Array.from(container.querySelectorAll('.bubble, .Message.message-list-item'));
             const results: any[] = [];
             let currentDateText = '';
 
             for (const bubble of bubbles) {
-                if (bubble.classList.contains('is-date')) {
+                if (bubble.classList.contains('bubble') && bubble.classList.contains('is-date')) {
                     const svc = bubble.querySelector('.service-msg');
                     if (svc) {
                         currentDateText = (svc as HTMLElement).innerText ? (svc as HTMLElement).innerText.trim() : '';
@@ -111,13 +114,13 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
                             text: (svc as HTMLElement).innerText ? (svc as HTMLElement).innerText.trim() : ''
                         });
                     }
-                } else if (bubble.classList.contains('service')) {
+                } else if (bubble.classList.contains('bubble') && bubble.classList.contains('service')) {
                     continue;
                 } else {
-                    const el = bubble.querySelector('.bubble-content');
+                    const el = bubble.querySelector('.bubble-content') || bubble;
                     if (!el) continue;
 
-                    const nameEl = el.querySelector('.name .peer-title, .colored-name .peer-title');
+                    const nameEl = el.querySelector('.name .peer-title, .colored-name .peer-title, .message-title .sender-title, .message-title-name .sender-title');
                     const msgEl = el.querySelector('.message');
                     
                     let extractedTime = '';
@@ -161,7 +164,16 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
                             text = clone.innerText || clone.textContent || '';
                         }
                     } else {
-                        const allTrans = Array.from(el.querySelectorAll('.translatable-message'));
+                        // Новая Telegram-разметка хранит текст непосредственно
+                        // в `.text-content`, без вложенного `.message`.
+                        const textNode = el.querySelector('.text-content');
+                        if (textNode) {
+                            const clone = textNode.cloneNode(true) as HTMLElement;
+                            clone.querySelector('.MessageMeta, .message-time, .time, .time-inner')?.remove();
+                            text = clone.innerText || clone.textContent || '';
+                        }
+
+                        const allTrans = text ? [] : Array.from(el.querySelectorAll('.translatable-message'));
                         if (allTrans.length > 0) {
                             const clone = allTrans[allTrans.length - 1].cloneNode(true) as HTMLElement;
                             clone.querySelector('.reply, .bubble-reply, .reply-content, blockquote.blockquote')?.remove();
