@@ -38,7 +38,7 @@ const removableGreetingPhrases = [
 // Эти фразы удаляются только когда вся непустая строка состоит из них.
 // Регистр, пробелы и знаки препинания при проверке не учитываются.
 const removableWholeLinePhrases = [
-    'адам', 'асиман', 'заявка', 'заказ', 'овощи', 'ба', 'спасибо'
+    'адам', 'adam', 'асиман', 'заявка', 'заказ', 'овощи', 'ба', 'спасибо'
 ];
 
 const removableGreetingPattern = removableGreetingPhrases
