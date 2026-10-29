@@ -65,6 +65,29 @@ function getBlockDisplayPart(messageDate: Date, time: string, now: Date): BlockD
     return 'previous-period';
 }
 
+function getBlockDate(block: CollectionTextBlock, now: Date): Date | undefined {
+    if (!block.date) return undefined;
+    const [day, month] = block.date.split('.').map(Number);
+    const messageDate = new Date(now.getFullYear(), month - 1, day);
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (messageDate > today) messageDate.setFullYear(messageDate.getFullYear() - 1);
+    return messageDate;
+}
+
+function hasEarlierTimestampBoundary(
+    blocks: CollectionTextBlock[],
+    blockIndex: number,
+    now: Date
+): boolean {
+    return blocks.slice(0, blockIndex).some(previous => {
+        if (!previous.time) return false;
+        const previousHour = Number.parseInt(previous.time.split(':')[0], 10);
+        if (Number.isFinite(previousHour) && previousHour >= 6 && previousHour < 15) return true;
+        const previousDate = getBlockDate(previous, now);
+        return Boolean(previousDate && getBlockDisplayPart(previousDate, previous.time, now) === 'previous-period');
+    });
+}
+
 export function getCollectionContext(now: Date = new Date()): CollectionContext {
     const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const hour = now.getHours();
@@ -166,11 +189,8 @@ export function formatCollectionBlocks(
     const hasMorning = blocks.some(block => {
         const hour = Number.parseInt((block.time || '').split(':')[0], 10);
         if (!Number.isFinite(hour) || hour < 6 || hour >= 15) return false;
-        if (!block.date) return true;
-        const [day, month] = block.date.split('.').map(Number);
-        const messageDate = new Date(now.getFullYear(), month - 1, day);
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        if (messageDate > today) messageDate.setFullYear(messageDate.getFullYear() - 1);
+        const messageDate = getBlockDate(block, now);
+        if (!messageDate) return true;
         const displayPart = getBlockDisplayPart(messageDate, block.time, now);
         return displayPart === 'current-period' || displayPart === 'previous-day-time';
     });
@@ -178,13 +198,20 @@ export function formatCollectionBlocks(
     let printedMorning = false;
     let printedAfternoon = false;
 
-    for (const block of blocks) {
+    for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+        const block = blocks[blockIndex];
         if (!block.date || !block.time) {
+            const hour = Number.parseInt((block.time || '').split(':')[0], 10);
+            const hasEarlierTimestamp = hasEarlierTimestampBoundary(blocks, blockIndex, now);
+            if (hasEarlierTimestamp && hour >= 15 && !printedAfternoon) {
+                printedAfternoon = true;
+                result.push(`(${block.time})\n${block.text}`);
+                continue;
+            }
             if (!hasMorning || !block.time) {
                 result.push(block.text);
                 continue;
             }
-            const hour = Number.parseInt(block.time.split(':')[0], 10);
             if (hour >= 6 && hour < 15) {
                 if (!printedMorning) {
                     printedMorning = true;
@@ -197,18 +224,21 @@ export function formatCollectionBlocks(
             continue;
         }
 
-        const [day, month] = block.date.split('.').map(Number);
-        const messageDate = new Date(now.getFullYear(), month - 1, day);
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        if (messageDate > today) messageDate.setFullYear(messageDate.getFullYear() - 1);
+        const messageDate = getBlockDate(block, now)!;
 
         const displayPart = getBlockDisplayPart(messageDate, block.time, now);
+        const hour = Number.parseInt(block.time.split(':')[0], 10);
+        const hasEarlierTimestamp = hasEarlierTimestampBoundary(blocks, blockIndex, now);
+        if (hasEarlierTimestamp && hour >= 15 && displayPart !== 'previous-period' && displayPart !== 'non-working-day' && !printedAfternoon) {
+            printedAfternoon = true;
+            result.push(`(${block.time})\n${block.text}`);
+            continue;
+        }
         if (displayPart === 'previous-day-none') {
             result.push(block.text);
             continue;
         }
         if (displayPart === 'previous-day-time') {
-            const hour = Number.parseInt(block.time.split(':')[0], 10);
             if (!hasMorning || hour < 6 || hour >= 15) result.push(block.text);
             else if (!printedMorning) {
                 printedMorning = true;
@@ -228,7 +258,6 @@ export function formatCollectionBlocks(
             continue;
         }
 
-        const hour = Number.parseInt(block.time.split(':')[0], 10);
         if (!hasMorning || hour < 6 || hour >= 15) result.push(block.text);
         else if (!printedMorning) {
             printedMorning = true;
