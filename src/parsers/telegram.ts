@@ -316,16 +316,51 @@ export async function parseTelegram(context: BrowserContext): Promise<OrderResul
         }
     }
 
+    const telegramUrl = 'https://web.telegram.org/k/';
     let page = await findPageByUrl(context, url => url.includes('web.telegram.org'));
+
+    // Сначала несколько раз используем уже открытую вкладку. Видимая вкладка
+    // может ещё переподключаться к браузеру, поэтому единичный ERR_SOCKET_NOT_CONNECTED
+    // не должен приводить к созданию дубля Telegram.
     if (page) {
-        await activateTab(page);
-        if (!page.url().includes('/k/')) {
-            await page.goto('https://web.telegram.org/k/', { waitUntil: 'domcontentloaded' });
+        let opened = false;
+        for (let attempt = 1; attempt <= 3 && !opened; attempt++) {
+            try {
+                await activateTab(page);
+                if (!page.url().includes('/k/')) {
+                    await page.goto(telegramUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+                }
+                opened = true;
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                telegramSpy(`NAVIGATION_RETRY attempt=${attempt} existingTab=true error=${JSON.stringify(message.slice(0, 300))}`);
+                if (attempt < 3) await page.waitForTimeout(1000 * attempt).catch(() => {});
+            }
         }
-    } else {
-        page = await context.newPage();
-        await page.goto('https://web.telegram.org/k/', { waitUntil: 'domcontentloaded' });
-        await activateTab(page);
+        if (!opened) page = undefined;
+    }
+
+    // Новую вкладку создаём только после неудачных попыток работы с уже
+    // открытой. Её навигация также повторяется, но без закрытия пользовательских
+    // вкладок Telegram.
+    if (!page) {
+        for (let attempt = 1; attempt <= 2 && !page; attempt++) {
+            const candidate = await context.newPage();
+            try {
+                await candidate.goto(telegramUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+                await activateTab(candidate);
+                page = candidate;
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                telegramSpy(`NAVIGATION_RETRY attempt=${attempt} existingTab=false error=${JSON.stringify(message.slice(0, 300))}`);
+                await candidate.close().catch(() => {});
+                if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            }
+        }
+    }
+
+    if (!page) {
+        throw new Error('Не удалось открыть Telegram Web после повторных попыток');
     }
 
     console.log('⚙️ [Telegram] Переключаемся на папку "Заказы"...');
