@@ -78,7 +78,10 @@ function stripGreetingsFromFirstLines(text: string): string {
 
 /** Удаляет приветствия из текста, чтобы они не попадали в заголовки. */
 function stripGreetings(text: string): string {
-    return stripGreetingsFromFirstLines(text).trim();
+    // Машущий рукой — служебное приветствие, удаляем его в любом месте текста.
+    return stripGreetingsFromFirstLines(text)
+        .replace(/👋(?:[\u{1F3FB}-\u{1F3FF}])?/gu, '')
+        .trim();
 }
 
 /**
