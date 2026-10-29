@@ -799,6 +799,19 @@ async function collectVkOrders(context: BrowserContext): Promise<OrderResult[]> 
                 
                 await chat.scrollIntoViewIfNeeded().catch(() => {});
                 await chat.evaluate((el: HTMLElement) => el.click());
+
+                // VK иногда обрабатывает клик сразу, но рисует историю диалога
+                // только через несколько секунд. Не начинаем сбор, пока сам
+                // контейнер открытого диалога не появился в DOM.
+                try {
+                    await page.waitForFunction(() => {
+                        return Boolean(document.querySelector(
+                            '.ConvoMain, [class*="ConvoMain"], .ConvoHistory, [class*="ConvoHistory"]'
+                        ));
+                    }, undefined, { timeout: 20000, polling: 250 });
+                } catch {
+                    // Ниже остаётся прежняя проверка заголовка и её fallback.
+                }
                 
                 // Ждём перерисовки чата, чтобы случайно не спарсить старый открытый чат
                 try {
