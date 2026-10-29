@@ -204,7 +204,12 @@ export function formatCollectionBlocks(
 
         const displayPart = getBlockDisplayPart(messageDate, block.time, now);
         if (displayPart === 'previous-day-none') {
-            result.push(block.text);
+            if (hasMorning && !printedAfternoon) {
+                printedAfternoon = true;
+                result.push(`(${block.time})\n${block.text}`);
+            } else {
+                result.push(block.text);
+            }
             continue;
         }
         if (displayPart === 'previous-day-time') {
