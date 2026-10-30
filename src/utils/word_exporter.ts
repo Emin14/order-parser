@@ -848,7 +848,13 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
 
         let existing = null;
         if (!isSeparate) {
-            if (vo.runKey && !vo.isBranchHeader && !vo.hasReply) {
+            // Для чатов с merge_by_sender сообщения одного отправителя должны
+            // объединяться даже через сообщения других отправителей. Поэтому
+            // это правило проверяется раньше runKey, который описывает только
+            // подряд идущую серию сообщений.
+            if (chatConfig.merge_by_sender && !vo.isBranchHeader) {
+                existing = groupedOrders.find(g => g.sender === vo.sender && g.chatName === vo.chatName);
+            } else if (vo.runKey && !vo.isBranchHeader && !vo.hasReply) {
                 existing = groupedOrders.find(g => g.runKey === vo.runKey && g.chatName === vo.chatName);
             } else if (chatConfig.shared_chat === true) {
                 if (vo.headerSource === 'explicit' && !vo.hasReply && mergeSetting) {
@@ -858,9 +864,6 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                 } else if (vo.headerSource === 'chat-fallback' && !vo.hasReply && vo.runKey) {
                     existing = groupedOrders.find(g => g.runKey === vo.runKey && g.chatName === vo.chatName);
                 }
-            } else if (chatConfig.merge_by_sender && !vo.isBranchHeader) {
-                // Объединяем по отправителю: один человек — один блок, разные люди — разные блоки
-                existing = groupedOrders.find(g => g.sender === vo.sender && g.chatName === vo.chatName);
             } else if (mergeSetting) {
                 // Стандартное объединение: одинаковый заголовок → один блок
                 existing = vo.branchName
