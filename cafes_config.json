@@ -44,7 +44,21 @@
         "enabled": true,
         "shared_chat": true,
         "prefix_brand": true,
-        "use_branch_name": true,
+        "use_branch_name": false,
+        "header_markers": [
+          {
+            "name": "The Locals",
+            "aliases": ["the locals", "локалс", "locals"]
+          },
+          {
+            "name": "Достояние",
+            "aliases": ["достояние", "достоянию", "жк достояние", "пролетарская"]
+          },
+          {
+            "name": "Гагарина",
+            "aliases": ["гагарина", "гагарину", "на гагарина", "72/3"]
+          }
+        ],
         "display_name": "locals",
         "branches": [
           {
