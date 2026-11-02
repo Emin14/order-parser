@@ -654,8 +654,14 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                                             .replace(/\s+/g, ' ')
                                             .replace(/^[\s:;,.!?\-–—]+|[\s:;,.!?\-–—]+$/g, '')
                                             .trim();
-                                        if (remainder) {
-                                            textBody = [remainder, ...textLines].join('\n').trim();
+                                        // После отделения филиала остаток может стать
+                                        // самостоятельной служебной строкой, например
+                                        // «Заказ ООО ПУР-ПУР Фирсово» -> «Заказ».
+                                        // Проверяем только такой точный остаток: фразы
+                                        // вроде «Заказ на завтра» сохраняются.
+                                        const cleanedRemainder = isRemovableWholeLine(remainder) ? '' : remainder;
+                                        if (cleanedRemainder) {
+                                            textBody = [cleanedRemainder, ...textLines].join('\n').trim();
                                         }
                                     }
                                 }
