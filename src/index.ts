@@ -137,8 +137,6 @@ async function main() {
         console.log('⏳ Ожидание 5 минут перед завершением...');
         await new Promise(r => setTimeout(r, 300000));
         
-        await context.close();
-
     } catch (error) {
         console.error('❌ Ошибка во время выполнения:', error);
     }
