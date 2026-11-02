@@ -4,7 +4,7 @@ import * as path from 'path';
 import { OrderResult, MessageItem } from '../types';
 import { checkOrderDate, getBannerDateCategory, getCategoryDate, isMessageActual } from '../utils/date';
 import { findPageByUrl } from '../utils/browser_pages';
-import { collectionSpy } from '../utils/collection';
+import { collectionSpy, type MessageCategory } from '../utils/collection';
 import { mergeTelegramHistory } from '../utils/telegram_history';
 
 const TELEGRAM_SPY_LOG = path.resolve(process.cwd(), 'telegram_spy.log');
@@ -20,7 +20,7 @@ function filterActualTelegramMessages(items: any[], chatName: string, chatDateFa
     let validMessages: MessageItem[] = [];
     collectionSpy({ messenger: 'Telegram', stage: 'filter-start', chat: chatName, items: items.length, fallback: chatDateFallback });
     
-    let fallbackCategory: 'today' | 'yesterday' | 'dayBeforeYesterday' | 'older' = 'today';
+    let fallbackCategory: MessageCategory = 'today';
     if (chatDateFallback) {
         const cat = getBannerDateCategory(chatDateFallback);
         if (cat !== 'older') {
@@ -28,7 +28,7 @@ function filterActualTelegramMessages(items: any[], chatName: string, chatDateFa
         }
     }
     
-    let currentCategory = fallbackCategory;
+    let currentCategory: MessageCategory = fallbackCategory;
     let lastSender = "";
 
     const hasBanners = items.some(item => item.type === 'banner');

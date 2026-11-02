@@ -75,7 +75,7 @@ async function main() {
                     await new Promise(r => setTimeout(r, 1000));
                 }
             } catch (e) {
-                console.log('⚠️ Не удалось разбудить вкладки:', e.message);
+                console.log('⚠️ Не удалось разбудить вкладки:', e instanceof Error ? e.message : String(e));
             }
             
             try {

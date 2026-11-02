@@ -2,7 +2,7 @@ import { BrowserContext, Page } from 'playwright';
 import { OrderResult, MessageItem } from '../types';
 import { checkOrderDate, getBannerDateCategory, getCategoryDate, isMessageActual } from '../utils/date';
 import { findPageByUrl } from '../utils/browser_pages';
-import { collectionSpy } from '../utils/collection';
+import { collectionSpy, type MessageCategory } from '../utils/collection';
 
 function processRawItems(items: any[]): any[] {
     let lastSender = "";
@@ -119,7 +119,7 @@ function filterActualMessages(items: any[], chatDateFallback: string = ''): Mess
     collectionSpy({ messenger: 'WhatsApp', stage: 'filter-start', items: items.length, fallback: chatDateFallback });
     
     // Определяем начальную категорию по дате из списка чатов, если нет баннеров
-    let fallbackCategory: 'today' | 'yesterday' | 'dayBeforeYesterday' | 'older' = 'today';
+    let fallbackCategory: MessageCategory = 'today';
     if (chatDateFallback) {
         const cat = getBannerDateCategory(chatDateFallback);
         if (cat !== 'older') {
@@ -127,7 +127,7 @@ function filterActualMessages(items: any[], chatDateFallback: string = ''): Mess
         }
     }
     
-    let currentCategory = fallbackCategory;
+    let currentCategory: MessageCategory = fallbackCategory;
     const firstBannerIndex = items.findIndex(item => item.type === 'banner');
     
     if (firstBannerIndex !== -1) {

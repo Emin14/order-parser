@@ -85,7 +85,7 @@ function extractVkElementsFromDom(): any[] {
     }
     
     // Текстовые блоки с названиями дат ("вчера", "сегодня", "22 сентября")
-    const bannerCandidates = Array.from(chatRoot.querySelectorAll('div, span, time')).filter(el => {
+    const bannerCandidates = Array.from(chatRoot.querySelectorAll<HTMLElement>('div, span, time')).filter(el => {
         if (el.closest('.StickyDateSeparator, [class*="StickyDate"], [class*="sticky-date"]')) return false;
 
         const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
