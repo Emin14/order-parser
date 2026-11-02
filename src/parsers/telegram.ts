@@ -2,7 +2,7 @@ import { BrowserContext, Page } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import { OrderResult, MessageItem } from '../types';
-import { checkOrderDate, getBannerDateCategory, isMessageActual } from '../utils/date';
+import { checkOrderDate, getBannerDateCategory, getCategoryDate, isMessageActual } from '../utils/date';
 import { findPageByUrl } from '../utils/browser_pages';
 import { collectionSpy } from '../utils/collection';
 
@@ -65,6 +65,10 @@ function filterActualTelegramMessages(items: any[], chatName: string, chatDateFa
                     sender: item.sender || lastSender || chatName,
                     phone: '',
                     time: item.time || '',
+                    // Сохраняем календарную дату, иначе форматтер не отличит
+                    // воскресное сообщение в понедельничном сборе от сообщения
+                    // текущего дня и ошибочно добавит время.
+                    date: getCategoryDate(messageCategory),
                     text: item.text.trim()
                 };
                 if (item.replyTo) {
