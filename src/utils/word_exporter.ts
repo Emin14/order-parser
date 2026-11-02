@@ -359,18 +359,17 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                     const secondHeading = firstHeading === barHeading ? kitchenHeading : barHeading;
                     // В общих чатах текст перед первым маркером обычно содержит
                     // общий контекст заказа (организацию, филиал или клиента).
-                    // Сохраняем его в обоих самостоятельных блоках.
+                    // Объединяем контекст с маркером в одну строку, иначе
+                    // следующий этап примет только контекст за заголовок,
+                    // а «Заказ бар/кухня» ошибочно останется в тексте заказа.
                     const sharedContext = chatConfig.shared_chat === true
                         ? stripGreetings(msg.text.slice(0, firstHeading.index).trim())
+                            .replace(/\s+/g, ' ').replace(/[:\s]+$/g, '')
                         : '';
-                    const firstBlock = [
-                        sharedContext,
-                        msg.text.slice(firstHeading.index, secondHeading.index).trim()
-                    ].filter(Boolean).join('\n').trim();
-                    const secondBlock = [
-                        sharedContext,
-                        msg.text.slice(secondHeading.index).trim()
-                    ].filter(Boolean).join('\n').trim();
+                    const firstBlock = (sharedContext ? `${sharedContext} ` : '')
+                        + msg.text.slice(firstHeading.index, secondHeading.index).trim();
+                    const secondBlock = (sharedContext ? `${sharedContext} ` : '')
+                        + msg.text.slice(secondHeading.index).trim();
                     rawBlocks = [firstBlock, secondBlock];
                 }
             }
