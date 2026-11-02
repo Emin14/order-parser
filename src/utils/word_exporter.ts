@@ -357,8 +357,20 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                 if (barHeading && kitchenHeading && barHeading.index !== undefined && kitchenHeading.index !== undefined) {
                     const firstHeading = barHeading.index < kitchenHeading.index ? barHeading : kitchenHeading;
                     const secondHeading = firstHeading === barHeading ? kitchenHeading : barHeading;
-                    const firstBlock = msg.text.slice(firstHeading.index, secondHeading.index).trim();
-                    const secondBlock = msg.text.slice(secondHeading.index).trim();
+                    // В общих чатах текст перед первым маркером обычно содержит
+                    // общий контекст заказа (организацию, филиал или клиента).
+                    // Сохраняем его в обоих самостоятельных блоках.
+                    const sharedContext = chatConfig.shared_chat === true
+                        ? stripGreetings(msg.text.slice(0, firstHeading.index).trim())
+                        : '';
+                    const firstBlock = [
+                        sharedContext,
+                        msg.text.slice(firstHeading.index, secondHeading.index).trim()
+                    ].filter(Boolean).join('\n').trim();
+                    const secondBlock = [
+                        sharedContext,
+                        msg.text.slice(secondHeading.index).trim()
+                    ].filter(Boolean).join('\n').trim();
                     rawBlocks = [firstBlock, secondBlock];
                 }
             }
