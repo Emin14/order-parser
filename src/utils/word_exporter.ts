@@ -4,7 +4,7 @@ import { Document, Paragraph, TextRun, Packer } from 'docx';
 import { OrderResult, MessageItem } from '../types';
 import { formatCollectionBlocks } from './collection';
 import { DELIVERY_RULES, stripDeliveryPhrase } from './delivery_rules';
-import { getTopUpStart, isMessageInTopUp } from './top_up';
+import { getTopUpRange, isMessageInTopUp } from './top_up';
 import { getBannerDateCategory, isMessageActual } from './date';
 
 const EXPORT_DETAIL_LOG = path.resolve(process.cwd(), 'export_detail.log');
@@ -88,9 +88,9 @@ function stripGreetings(text: string): string {
         .trim();
 }
 
-export async function exportToWord(orders: OrderResult[], outputPath: string, fromTime?: string) {
+export async function exportToWord(orders: OrderResult[], outputPath: string, fromTime?: string, toTime?: string) {
     const exportNow = new Date();
-    const topUpStart = getTopUpStart(fromTime, exportNow);
+    const { start: topUpStart, end: topUpEnd } = getTopUpRange(fromTime, toTime, exportNow);
     const configPath = path.resolve(process.cwd(), 'cafes_config.json');
     if (!fs.existsSync(configPath)) {
         console.error('Конфиг cafes_config.json не найден!');
@@ -166,10 +166,10 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         if (chatConfig.enabled === false) continue;
 
         // Применяем фильтр добора — отсекаем сообщения вне диапазона
-        let messages = orderBlock.messages.filter(m => isMessageInTopUp(m, topUpStart, exportNow));
-        if (topUpStart) {
+        let messages = orderBlock.messages.filter(m => isMessageInTopUp(m, topUpStart, exportNow, topUpEnd));
+        if (topUpStart || topUpEnd) {
             logExportDetail('top-up-filter', {
-                chat: orderBlock.chatName, start: topUpStart.toISOString(), now: exportNow.toISOString(),
+                chat: orderBlock.chatName, start: topUpStart?.toISOString(), end: topUpEnd?.toISOString(), now: exportNow.toISOString(),
                 total: orderBlock.messages.length, accepted: messages.length,
                 missingDates: orderBlock.messages.filter(message => !message.date).length
             });

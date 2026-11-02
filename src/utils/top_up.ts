@@ -19,6 +19,21 @@ export function getTopUpStart(fromTime: string | undefined, now = new Date()): D
     return start;
 }
 
+/** Конец относится к дате начала; меньшее время означает следующий день.
+ * Без начала TO_TIME относится к сегодняшнему дню и не ограничивает старые даты.
+ * Ни один диапазон не включает ещё не наступившее время.
+ */
+export function getTopUpRange(fromTime?: string, toTime?: string, now = new Date()): { start?: Date; end?: Date } {
+    const start = getTopUpStart(fromTime, now);
+    if (!toTime) return { start, end: start ? new Date(now) : undefined };
+    const clock = parseClock(toTime);
+    if (!clock) throw new Error(`Некорректное время окончания добора ${JSON.stringify(toTime)}. Укажите HH:MM от 00:00 до 23:59.`);
+    const reference = start || now;
+    const end = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate(), ...clock);
+    if (start && end < start) end.setDate(end.getDate() + 1);
+    return { start, end: end > now ? new Date(now) : end };
+}
+
 function parseDate(value: string, now: Date): Date | undefined {
     const match = value.trim().match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{4}|\d{2}))?$/);
     if (!match) return undefined;
@@ -32,25 +47,26 @@ function parseDate(value: string, now: Date): Date | undefined {
 }
 
 /** Отбор выполняется после сбора, до объединения заказов; исходный JSON не меняется. */
-export function isMessageInTopUp(message: MessageTimestamp, start: Date | undefined, now = new Date()): boolean {
-    if (!start) return true;
+export function isMessageInTopUp(message: MessageTimestamp, start: Date | undefined, now = new Date(), end?: Date): boolean {
+    if (!start && !end) return true;
+    const upper = end || now;
     const clock = parseClock(message.time);
     const date = message.date ? parseDate(message.date, now) : undefined;
     if (date) {
         if (!clock) {
             // Время неизвестно: сохраняем прежнее поведение внутри подходящего
             // дня, но заведомо более старые даты больше не пропускаем.
-            const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            return date >= startDay && date <= today;
+            const startDay = start ? new Date(start.getFullYear(), start.getMonth(), start.getDate()) : undefined;
+            const endDay = new Date(upper.getFullYear(), upper.getMonth(), upper.getDate());
+            return (!startDay || date >= startDay) && date <= endDay;
         }
         date.setHours(...clock, 0, 0);
-        return date >= start && date <= now;
+        return (!start || date >= start) && date <= upper;
     }
     // Совместимость со старыми данными без распознанной даты: только здесь
     // остаётся прежнее предположение о последних 24 часах.
     if (!clock) return true;
     const inferred = new Date(now.getFullYear(), now.getMonth(), now.getDate(), ...clock);
     if (inferred > now) inferred.setDate(inferred.getDate() - 1);
-    return inferred >= start && inferred <= now;
+    return (!start || inferred >= start) && inferred <= upper;
 }

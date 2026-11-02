@@ -7,7 +7,7 @@ const JSZip = require('jszip');
 require('tsx/cjs');
 const { exportToWord } = require('../src/utils/word_exporter.ts');
 
-async function exportedText(now, fromTime, messages) {
+async function exportedText(now, fromTime, messages, toTime) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'top-up-export-'));
     const previousDirectory = process.cwd();
     const RealDate = global.Date;
@@ -25,7 +25,7 @@ async function exportedText(now, fromTime, messages) {
         await exportToWord(platforms.map(messenger => ({
             messenger, chatName: messenger,
             messages: messages.map(message => ({ sender: 'Клиент', phone: '', ...message, text: `${messenger} ${message.text}` }))
-        })), output, fromTime);
+        })), output, fromTime, toTime);
         const zip = await JSZip.loadAsync(fs.readFileSync(output));
         return await zip.file('word/document.xml').async('string');
     } finally {
@@ -34,6 +34,30 @@ async function exportedText(now, fromTime, messages) {
         fs.rmSync(directory, { recursive: true, force: true });
     }
 }
+
+test('Word всех платформ: TO_TIME ограничивает экспорт, пустое значение сохраняет 16:41', async () => {
+    const now = new Date(2026, 10, 2, 17, 20);
+    const messages = [
+        { date: '02.11', time: '15:00', text: 'На границе' },
+        { date: '02.11', time: '16:41', text: 'Фобо Аркада' }
+    ];
+    checkPlatforms(await exportedText(now, '00:00', messages, '15:00'), ['На границе'], ['Фобо Аркада']);
+    checkPlatforms(await exportedText(now, '00:00', messages, ''), ['На границе', 'Фобо Аркада'], []);
+});
+
+test('Word всех платформ: только TO_TIME сохраняет прошлые даты; ночной диапазон не захватывает утро', async () => {
+    const now = new Date(2026, 10, 2, 17, 20);
+    const messages = [
+        { date: '01.11', time: '23:00', text: 'Вечерний текст' },
+        { date: '02.11', time: '02:00', text: 'Ночной текст' },
+        { date: '02.11', time: '09:00', text: 'Утренний текст' },
+        { date: '02.11', time: '16:41', text: 'Дневной текст' }
+    ];
+    checkPlatforms(await exportedText(now, '', messages, '15:00'),
+        ['Вечерний текст', 'Ночной текст', 'Утренний текст'], ['Дневной текст']);
+    checkPlatforms(await exportedText(new Date(2026, 10, 2, 10), '23:00', messages, '02:00'),
+        ['Вечерний текст', 'Ночной текст'], ['Утренний текст', 'Дневной текст']);
+});
 
 function checkPlatforms(xml, included, excluded) {
     for (const platform of ['VK', 'Telegram', 'WhatsApp']) {

@@ -134,7 +134,6 @@ export function isMessageInCollection(
     const dayOfWeek = now.getDay();
     const match = (timeStr || '').match(/(\d{1,2}):(\d{2})/);
     const hour = match ? parseInt(match[1], 10) : 0;
-    const minute = match ? parseInt(match[2], 10) : 0;
     const checkTargetTime = (h: number, text: string, referenceDate: Date): boolean => {
         if (h >= 11) return true;
         if (h >= 9 && h < 11) {
@@ -184,8 +183,7 @@ export function isMessageInCollection(
         return finish(checkTargetTime(hour, messageText, reference), 'yesterday');
     }
     if (category === 'today') {
-        if (dayOfWeek === 0 || now.getHours() < 15) return finish(true, 'today Sunday/day');
-        return finish(hour < 15 || (hour === 15 && minute === 0), 'today after 15:00');
+        return finish(true, 'today daytime collection');
     }
     return finish(false, 'unhandled category');
 }

@@ -6,6 +6,7 @@ import { parseTelegram } from './parsers/telegram';
 import { parseVk } from './parsers/vk';
 import { OrderResult } from './types';
 import { getCollectionContext } from './utils/collection';
+import { getTopUpRange } from './utils/top_up';
 
 // Общие настройки для сборщика и ярлыка рабочего браузера.
 const { loadBrowserConfig } = require('../scripts/browser-config.cjs');
@@ -18,6 +19,8 @@ const USE_MOCK_DATA = false;
 // Оставьте пустую строку '' для обычного полного сбора.
 // Пример: const FROM_TIME = '23:01';  // собрать с 23:01 вчера/сегодня до сейчас
 const FROM_TIME = '';
+// Верхняя граница Word-экспорта включительно; '' — до момента запуска экспорта.
+const TO_TIME = '';
 
 async function main() {
     try {
@@ -27,8 +30,17 @@ async function main() {
         const fromTime: string | undefined =
             fromArgIndex !== -1 ? process.argv[fromArgIndex + 1]
             : FROM_TIME || undefined;
-        if (fromTime) {
-            console.log(`⏱️ Режим ДОБОРА: собираем заказы с ${fromTime} до сейчас`);
+        const toArgIndex = process.argv.indexOf('--to');
+        const toTime: string | undefined =
+            toArgIndex !== -1 ? process.argv[toArgIndex + 1]
+            : TO_TIME || undefined;
+        if ((fromArgIndex !== -1 && (!fromTime || fromTime.startsWith('--'))) ||
+            (toArgIndex !== -1 && (!toTime || toTime.startsWith('--')))) {
+            throw new Error('После --from и --to нужно указать время HH:MM.');
+        }
+        getTopUpRange(fromTime, toTime); // Проверяем параметры до запуска браузера.
+        if (fromTime || toTime) {
+            console.log(`⏱️ Режим ДОБОРА:${fromTime ? ` с ${fromTime}` : ''} до ${toTime || 'текущего момента'}`);
         }
 
         const allOrders: OrderResult[] = [];
@@ -111,6 +123,7 @@ async function main() {
             const timeSafe = fromTime.replace(/:/g, '.');
             fileName += ` с ${timeSafe}`;
         }
+        if (toTime) fileName += ` до ${toTime.replace(/:/g, '.')}`;
         fileName += '.docx';
         
         const wordOutputPath = path.join(process.cwd(), fileName);
@@ -118,7 +131,7 @@ async function main() {
         const { exportToWord } = await import('./utils/word_exporter');
         const exportStartedAt = Date.now();
         console.log(`📝 Начинаем создание Word-файла: ${wordOutputPath}`);
-        await exportToWord(allOrders, wordOutputPath, fromTime);
+        await exportToWord(allOrders, wordOutputPath, fromTime, toTime);
         console.log(`⏱️ Word-файл подготовлен за ${((Date.now() - exportStartedAt) / 1000).toFixed(1)} с`);
 
         console.log('⏳ Ожидание 5 минут перед завершением...');

@@ -1,7 +1,44 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 require('tsx/cjs');
-const { getTopUpStart, isMessageInTopUp } = require('../src/utils/top_up.ts');
+const { getTopUpStart, getTopUpRange, isMessageInTopUp } = require('../src/utils/top_up.ts');
+
+function inRange(message, from, to, now) {
+    const { start, end } = getTopUpRange(from, to, now);
+    return isMessageInTopUp(message, start, now, end);
+}
+
+test('TO_TIME: границы включаются, сообщения позже конца исключаются', () => {
+    const now = new Date(2026, 10, 2, 17, 20);
+    for (const [time, expected] of [['00:00', true], ['15:00', true], ['15:01', false], ['16:41', false]]) {
+        assert.equal(inRange({ date: '02.11', time }, '00:00', '15:00', now), expected);
+    }
+    assert.equal(inRange({ date: '02.11', time: '16:41' }, '00:00', '', now), true);
+    assert.equal(inRange({ date: '02.11', time: '17:21' }, '00:00', '23:59', now), false);
+});
+
+test('Только TO_TIME не исключает вчерашние заказы, принятые общим сбором', () => {
+    const now = new Date(2026, 10, 2, 17, 20);
+    assert.equal(inRange({ date: '01.11', time: '23:00' }, '', '15:00', now), true);
+    assert.equal(inRange({ date: '02.11', time: '15:00' }, '', '15:00', now), true);
+    assert.equal(inRange({ date: '02.11', time: '15:01' }, '', '15:00', now), false);
+});
+
+test('Диапазон 23:00–02:00 проходит через полночь и границу года', () => {
+    const now = new Date(2027, 0, 1, 10);
+    for (const [date, time, expected] of [
+        ['31.12.2026', '22:59', false], ['31.12.2026', '23:00', true],
+        ['01.01.2027', '02:00', true], ['01.01.2027', '02:01', false]
+    ]) assert.equal(inRange({ date, time }, '23:00', '02:00', now), expected);
+    assert.equal(getTopUpRange('23:00', '02:00', new Date(2027, 0, 1, 1)).end.getHours(), 1);
+});
+
+test('TO_TIME: ошибки формата и одинаковые границы', () => {
+    const now = new Date(2026, 10, 2, 17);
+    for (const value of ['24:00', '00:60', 'abc']) assert.throws(() => getTopUpRange('', value, now), /Некорректное время окончания/);
+    assert.equal(inRange({ date: '02.11', time: '10:00' }, '10:00', '10:00', now), true);
+    assert.equal(inRange({ date: '02.11', time: '10:01' }, '10:00', '10:00', now), false);
+});
 
 test('00:00 означает сегодняшнюю полночь, а не часы любого подходящего дня', () => {
     const now = new Date(2026, 10, 2, 16, 26);
