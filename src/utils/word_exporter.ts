@@ -4,6 +4,7 @@ import { Document, Paragraph, TextRun, Packer } from 'docx';
 import { OrderResult, MessageItem } from '../types';
 import { formatCollectionBlocks } from './collection';
 import { DELIVERY_RULES, stripDeliveryPhrase } from './delivery_rules';
+import { getTopUpStart, isMessageInTopUp } from './top_up';
 import { getBannerDateCategory, isMessageActual } from './date';
 
 const EXPORT_DETAIL_LOG = path.resolve(process.cwd(), 'export_detail.log');
@@ -88,6 +89,8 @@ function stripGreetings(text: string): string {
 }
 
 export async function exportToWord(orders: OrderResult[], outputPath: string, fromTime?: string) {
+    const exportNow = new Date();
+    const topUpStart = getTopUpStart(fromTime, exportNow);
     const configPath = path.resolve(process.cwd(), 'cafes_config.json');
     if (!fs.existsSync(configPath)) {
         console.error('Конфиг cafes_config.json не найден!');
@@ -128,35 +131,6 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         return false;
     }
 
-    // --- Фильтр «добора»: оставляем только сообщения после fromTime ---
-    function isAfterFrom(msgTime: string | undefined): boolean {
-        if (!fromTime) return true;  // режим не задан — берём все
-        if (!msgTime) return true;   // нет времени — не отсекаем
-
-        const now = new Date();
-        const currentTotal = now.getHours() * 60 + now.getMinutes();
-
-        // Переводим время HH:MM в "абсолютные минуты" относительно ТЕКУЩЕГО времени.
-        // Поскольку парсер собирает заказы за последние ~24 часа:
-        // Если время сообщения БОЛЬШЕ текущего (например, сейчас 12:15, а сообщение 20:29),
-        // значит это сообщение было ВЧЕРА. Мы вычитаем 24 часа.
-        function getAbsoluteMinutes(t: string): number {
-            const [h, m] = t.split(':').map(Number);
-            let total = h * 60 + m;
-            
-            // Если время больше текущего — это 100% вчерашний день
-            if (total > currentTotal) {
-                total -= 24 * 60; 
-            }
-            return total;
-        }
-
-        const msgAbsolute = getAbsoluteMinutes(msgTime);
-        const fromAbsolute = getAbsoluteMinutes(fromTime);
-
-        return msgAbsolute >= fromAbsolute;
-    }
-
     interface VirtualOrder {
         header: string;
         text: string;
@@ -192,7 +166,14 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         if (chatConfig.enabled === false) continue;
 
         // Применяем фильтр добора — отсекаем сообщения вне диапазона
-        let messages = [...orderBlock.messages].filter(m => isAfterFrom(m.time));
+        let messages = orderBlock.messages.filter(m => isMessageInTopUp(m, topUpStart, exportNow));
+        if (topUpStart) {
+            logExportDetail('top-up-filter', {
+                chat: orderBlock.chatName, start: topUpStart.toISOString(), now: exportNow.toISOString(),
+                total: orderBlock.messages.length, accepted: messages.length,
+                missingDates: orderBlock.messages.filter(message => !message.date).length
+            });
+        }
         if (messages.length === 0) continue;
 
         const cleanChatName = chatConfig.display_name || cleanBrandName(chatConfig.name);
