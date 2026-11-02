@@ -81,9 +81,11 @@ function hasEarlierTimestampBoundary(
 ): boolean {
     return blocks.slice(0, blockIndex).some(previous => {
         if (!previous.time) return false;
+        const previousDate = getBlockDate(previous, now);
+        // Воскресный блок без отметки сам по себе не создаёт границу времени.
+        if (previousDate && getBlockDisplayPart(previousDate, previous.time, now) === 'non-working-day') return false;
         const previousHour = Number.parseInt(previous.time.split(':')[0], 10);
         if (Number.isFinite(previousHour) && previousHour >= 6 && previousHour < 15) return true;
-        const previousDate = getBlockDate(previous, now);
         return Boolean(previousDate && getBlockDisplayPart(previousDate, previous.time, now) === 'previous-period');
     });
 }
@@ -197,6 +199,7 @@ export function formatCollectionBlocks(
     const result: string[] = [];
     let printedMorning = false;
     let printedAfternoon = false;
+    let printedNonWorkingBoundary = false;
 
     for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
         const block = blocks[blockIndex];
@@ -254,7 +257,13 @@ export function formatCollectionBlocks(
             continue;
         }
         if (displayPart === 'non-working-day') {
-            result.push(block.text);
+            // Воскресенье обычно без времени. Но после старой части заказа
+            // отмечаем первое актуальное сообщение, включая случай, когда
+            // дата старой части уже напечатана в другом блоке этого чата.
+            if (hasEarlierTimestamp && !printedNonWorkingBoundary) {
+                printedNonWorkingBoundary = true;
+                result.push(`(${block.time})\n${block.text}`);
+            } else result.push(block.text);
             continue;
         }
 
