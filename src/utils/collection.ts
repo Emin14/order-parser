@@ -29,40 +29,46 @@ export function collectionSpy(entry: Record<string, unknown>): void {
     }
 }
 
-type CollectionPart = 'previous-period' | 'non-working-day' | 'current-period';
-type BlockDisplayPart = CollectionPart | 'previous-day-time' | 'previous-day-none';
+type BlockDisplayPart = 'previous-period' | 'collection-continuation' | 'current-period' |
+    'previous-day-time' | 'previous-day-none';
 
-function getCollectionPart(messageDate: Date, now: Date): CollectionPart {
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const messageDay = messageDate.getDay();
-    const todayDay = today.getDay();
-
-    // Воскресенье не является рабочим днём. В воскресенье вечером и
-    // в понедельник воскресные сообщения входят в сбор, но не получают
-    // отметку времени.
-    if (messageDay === 0 && (todayDay === 0 || todayDay === 1)) {
-        return 'non-working-day';
-    }
-    if (messageDate.getTime() < today.getTime()) return 'previous-period';
-    return 'current-period';
-}
+const DISPLAY_BOUNDARY_HOUR = 15;
+const WEEKDAY_LABELS = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'] as const;
 
 /**
  * Классифицирует отображение сообщения по календарной дате и времени.
  * Отбор сообщений этим правилом не меняется.
  */
 function getBlockDisplayPart(messageDate: Date, time: string, now: Date): BlockDisplayPart {
-    const collectionPart = getCollectionPart(messageDate, now);
-    if (collectionPart !== 'previous-period') return collectionPart;
-
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const hour = Number.parseInt((time || '').split(':')[0], 10);
+    // Для отображения понедельничного сбора суббота с 15:00 и воскресенье
+    // образуют один период. Переключение режима запуска в 18:00 и отбор
+    // сообщений остаются в getCollectionContext/isMessageInCollection.
+    const mondayCollection = now.getDay() === 0 || (now.getDay() === 1 && now.getHours() < 18);
+    if (mondayCollection) {
+        const saturday = new Date(today);
+        saturday.setDate(saturday.getDate() - (now.getDay() === 0 ? 1 : 2));
+        const monday = new Date(saturday);
+        monday.setDate(monday.getDate() + 2);
+        if (messageDate >= saturday && messageDate < monday) {
+            return messageDate > saturday || hour >= DISPLAY_BOUNDARY_HOUR
+                ? 'collection-continuation'
+                : 'previous-period';
+        }
+    }
+    if (messageDate >= today) return 'current-period';
     const messageDay = new Date(messageDate.getFullYear(), messageDate.getMonth(), messageDate.getDate());
     const dayDistance = Math.round((today.getTime() - messageDay.getTime()) / 86400000);
     if (dayDistance === 1) {
-        const hour = Number.parseInt((time || '').split(':')[0], 10);
-        return Number.isFinite(hour) && hour >= 15 ? 'previous-day-none' : 'previous-day-time';
+        return Number.isFinite(hour) && hour >= DISPLAY_BOUNDARY_HOUR ? 'previous-day-none' : 'previous-day-time';
     }
     return 'previous-period';
+}
+
+/** Единый вид отметки, когда нужна дата: «сб 31.10 11:21». */
+function formatDatedTimestamp(messageDate: Date, date: string, time: string): string {
+    return `(${WEEKDAY_LABELS[messageDate.getDay()]} ${date} ${time})`;
 }
 
 function getBlockDate(block: CollectionTextBlock, now: Date): Date | undefined {
@@ -82,8 +88,8 @@ function hasEarlierTimestampBoundary(
     return blocks.slice(0, blockIndex).some(previous => {
         if (!previous.time) return false;
         const previousDate = getBlockDate(previous, now);
-        // Воскресный блок без отметки сам по себе не создаёт границу времени.
-        if (previousDate && getBlockDisplayPart(previousDate, previous.time, now) === 'non-working-day') return false;
+        // Актуальная часть выходных сама по себе не создаёт старую границу.
+        if (previousDate && getBlockDisplayPart(previousDate, previous.time, now) === 'collection-continuation') return false;
         const previousHour = Number.parseInt(previous.time.split(':')[0], 10);
         if (Number.isFinite(previousHour) && previousHour >= 6 && previousHour < 15) return true;
         return Boolean(previousDate && getBlockDisplayPart(previousDate, previous.time, now) === 'previous-period');
@@ -199,7 +205,7 @@ export function formatCollectionBlocks(
     const result: string[] = [];
     let printedMorning = false;
     let printedAfternoon = false;
-    let printedNonWorkingBoundary = false;
+    let printedCollectionBoundary = false;
 
     for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
         const block = blocks[blockIndex];
@@ -232,7 +238,7 @@ export function formatCollectionBlocks(
         const displayPart = getBlockDisplayPart(messageDate, block.time, now);
         const hour = Number.parseInt(block.time.split(':')[0], 10);
         const hasEarlierTimestamp = hasEarlierTimestampBoundary(blocks, blockIndex, now);
-        if (hasEarlierTimestamp && hour >= 15 && displayPart !== 'previous-period' && displayPart !== 'non-working-day' && !printedAfternoon) {
+        if (hasEarlierTimestamp && hour >= 15 && displayPart !== 'previous-period' && displayPart !== 'collection-continuation' && !printedAfternoon) {
             printedAfternoon = true;
             result.push(`(${block.time})\n${block.text}`);
             continue;
@@ -252,17 +258,20 @@ export function formatCollectionBlocks(
         if (displayPart === 'previous-period') {
             if (!printedDates.has(block.date)) {
                 printedDates.add(block.date);
-                result.push(`(${block.date} ${block.time})\n${block.text}`);
+                result.push(`${formatDatedTimestamp(messageDate, block.date, block.time)}\n${block.text}`);
             } else result.push(block.text);
             continue;
         }
-        if (displayPart === 'non-working-day') {
-            // Воскресенье обычно без времени. Но после старой части заказа
-            // отмечаем первое актуальное сообщение, включая случай, когда
-            // дата старой части уже напечатана в другом блоке этого чата.
-            if (hasEarlierTimestamp && !printedNonWorkingBoundary) {
-                printedNonWorkingBoundary = true;
-                result.push(`(${block.time})\n${block.text}`);
+        if (displayPart === 'collection-continuation') {
+            // Отмечаем только вход в актуальную часть, а не смену календарного
+            // дня внутри неё. Даже уже напечатанная дата не скрывает переход.
+            if (hasEarlierTimestamp && !printedCollectionBoundary) {
+                printedCollectionBoundary = true;
+                printedAfternoon = true;
+                const isToday = messageDate.toDateString() === now.toDateString();
+                const timestamp = isToday ? `(${block.time})`
+                    : formatDatedTimestamp(messageDate, block.date, block.time);
+                result.push(`${timestamp}\n${block.text}`);
             } else result.push(block.text);
             continue;
         }
