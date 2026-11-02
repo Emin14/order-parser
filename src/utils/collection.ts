@@ -191,7 +191,6 @@ export function isMessageInCollection(
 /** Формирует текст блоков с едиными правилами показа даты и времени. */
 export function formatCollectionBlocks(
     blocks: CollectionTextBlock[],
-    printedDates: Set<string>,
     now: Date = new Date()
 ): string {
     const hasMorning = blocks.some(block => {
@@ -256,15 +255,12 @@ export function formatCollectionBlocks(
             continue;
         }
         if (displayPart === 'previous-period') {
-            if (!printedDates.has(block.date)) {
-                printedDates.add(block.date);
-                result.push(`${formatDatedTimestamp(messageDate, block.date, block.time)}\n${block.text}`);
-            } else result.push(block.text);
+            result.push(`${formatDatedTimestamp(messageDate, block.date, block.time)}\n${block.text}`);
             continue;
         }
         if (displayPart === 'collection-continuation') {
             // Отмечаем только вход в актуальную часть, а не смену календарного
-            // дня внутри неё. Даже уже напечатанная дата не скрывает переход.
+            // дня внутри неё.
             if (hasEarlierTimestamp && !printedCollectionBoundary) {
                 printedCollectionBoundary = true;
                 printedAfternoon = true;

@@ -928,13 +928,10 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
     // --- ЭТАП 4: Генерация Word документа ---
     const children: Paragraph[] = [];
     let prevChatName = '';
-    const printedDatesByChat = new Map<string, Set<string>>();
 
     for (const order of groupedOrders) {
         const isNewChat = order.chatName !== prevChatName;
         prevChatName = order.chatName;
-        const printedDates = printedDatesByChat.get(order.chatName) || new Set<string>();
-        printedDatesByChat.set(order.chatName, printedDates);
 
         // Заголовок заказа (Жирный, Calibri 16)
         // Первый заголовок нового чата — первая буква красная + больше отступов сверху
@@ -973,7 +970,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
         }));
 
         // Текст заказа (Обычный, Calibri 16)
-        const fullText = formatCollectionBlocks(order.blocks, printedDates, new Date());
+        const fullText = formatCollectionBlocks(order.blocks, new Date());
 
 
         const lines = fullText.split('\n');
