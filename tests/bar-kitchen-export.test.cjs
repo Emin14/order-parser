@@ -7,7 +7,7 @@ const JSZip = require('jszip');
 require('tsx/cjs');
 const { exportToWord } = require('../src/utils/word_exporter.ts');
 
-async function paragraphs(text, chatConfig) {
+async function paragraphs(text, chatConfig, messageFields = {}) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bar-kitchen-export-'));
     const previousDirectory = process.cwd();
     try {
@@ -18,7 +18,7 @@ async function paragraphs(text, chatConfig) {
         const output = path.join(directory, 'orders.docx');
         await exportToWord([{
             messenger: 'VK', chatName: 'Проверка',
-            messages: [{ sender: 'Клиент', phone: '', time: '23:07', text }]
+            messages: [{ sender: 'Клиент', phone: '', time: '23:07', text, ...messageFields }]
         }], output);
         const zip = await JSZip.loadAsync(fs.readFileSync(output));
         const xml = await zip.file('word/document.xml').async('string');
@@ -33,6 +33,54 @@ async function paragraphs(text, chatConfig) {
 }
 
 const shared = { shared_chat: true, allow_unlisted_headers: true };
+
+async function withDate(instant, action) {
+    const RealDate = global.Date;
+    global.Date = class extends RealDate {
+        constructor(...args) { super(...(args.length ? args : [instant.getTime()])); }
+        static now() { return instant.getTime(); }
+    };
+    try { return await action(); } finally { global.Date = RealDate; }
+}
+
+test('ИП Каюмова: заявка на 2 ноября во второй строке удаляется, товары остаются', async () => {
+    await withDate(new Date(2026, 10, 2, 10), async () => {
+        for (const request of ['примите пожалуйста заявку', 'примите заявку пожалуйста', 'примите заявку']) {
+            const text = `Ип каюмова\nЗдравствуйте, ${request} на 2 ноября\nКартофель 25\nЛук репчатый 10 кг\nЛук зелёный 150`;
+            for (const fields of [
+                { date: '01.11' },
+                { date: '01.11', isForwarded: true, forwardedText: text, forwardedOuterText: '' }
+            ]) {
+                const result = await paragraphs(text, shared, fields);
+                assert.deepEqual(result.map(p => p.text), ['Ип каюмова:', 'Картофель 25', 'Лук репчатый 10 кг', 'Лук зелёный 150']);
+            }
+        }
+    });
+});
+
+test('Дата другого дня во второй строке остаётся в Word', async () => {
+    await withDate(new Date(2026, 10, 2, 10), async () => {
+        const result = await paragraphs('Ип каюмова\nЗдравствуйте, примите пожалуйста заявку на 3 ноября\nКартофель 25', shared, { date: '01.11' });
+        assert.deepEqual(result.map(p => p.text), ['Ип каюмова:', 'на 3 ноября', 'Картофель 25']);
+    });
+});
+
+test('Запуск в 16:26: ПУР-ПУР, числовая дата и Каюмова очищаются в готовом Word', async () => {
+    await withDate(new Date(2026, 10, 2, 16, 26), async () => {
+        const pur = await paragraphs('Примите заказ пожалуйста на завтра\n\nАпельсины 3 кг',
+            { shared_chat: false }, { date: '01.11', time: '20:20' });
+        assert.deepEqual(pur.map(p => p.text), ['Проверка:', 'Апельсины 3 кг']);
+        const flame = await paragraphs('Добрый вечер,заявка на 2.11\nКартофель 15кг',
+            { shared_chat: false }, { date: '01.11', time: '23:48' });
+        assert.deepEqual(flame.map(p => p.text), ['Проверка:', 'Картофель 15кг']);
+        const text = 'Здравствуйте, примите пожалуйста заявку на 2 ноября\nКартофель 25';
+        const family = await paragraphs('Ип каюмова\n' + text, shared, {
+            date: '01.11', time: '23:07', isForwarded: true,
+            forwardedText: text, forwardedOuterText: 'Ип каюмова'
+        });
+        assert.deepEqual(family.map(p => p.text), ['Ип каюмова:', 'Картофель 25']);
+    });
+});
 
 test('Семья: общий контекст и бар/кухня становятся жирными заголовками в Word', async () => {
     const result = await paragraphs('Добрый день!\nЗаказ на понедельник ИП Лутикова Екатерина:\nЗаказ бар:\nЛимоны 5шт\nЗаказ кухня:\nАйсберг 3кг', shared);
@@ -55,6 +103,17 @@ test('Контекст из нескольких строк сохраняетс
 test('Приветствие без контекста не добавляется к заголовкам', async () => {
     const result = await paragraphs('Добрый день!\nЗаказ бар:\nЛимоны 5шт\nЗаказ кухня:\nАйсберг 3кг', shared);
     assert.deepEqual(result.filter(p => p.bold).map(p => p.text), ['Заказ бар:', 'Заказ кухня:']);
+});
+
+test('Срок поставки удаляется до формирования общего заголовка бара и кухни', async () => {
+    const { getDeliveryPeriod } = require('../src/utils/delivery_rules.ts');
+    const { deliveryDate, start } = getDeliveryPeriod(new Date());
+    const target = `${deliveryDate.getDate()}.${deliveryDate.getMonth() + 1}`;
+    const date = `${start.getDate()}.${start.getMonth() + 1}`;
+    const result = await paragraphs(`Добрый день!\nЗаявка на ${target} ИП Лутикова Екатерина:\nЗаказ бар:\nЛимоны 5шт\nЗаказ кухня:\nАйсберг 3кг`, shared, { date });
+    assert.deepEqual(result.filter(p => p.bold).map(p => p.text), [
+        'ИП Лутикова Екатерина Заказ бар:', 'ИП Лутикова Екатерина Заказ кухня:'
+    ]);
 });
 
 test('Обычные чаты без shared_chat сохраняют прежние блоки', async () => {

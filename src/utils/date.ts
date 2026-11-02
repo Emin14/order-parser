@@ -5,26 +5,14 @@ export interface CheckOrderResult {
 }
 
 import { getCollectionContext, isMessageInCollection, type MessageCategory, type ShiftMode } from './collection';
+import { DELIVERY_RULES } from './delivery_rules';
 export type { ShiftMode } from './collection';
 
 const DAYS_EN = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-const DAYS_RU = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+const DAYS_RU = DELIVERY_RULES.weekdays.map(day => day.short);
 
-const MONTHS = [
-    { en: 'january', enShort: 'jan', ru: 'январ', ruShort: 'янв' },
-    { en: 'february', enShort: 'feb', ru: 'феврал', ruShort: 'фев' },
-    { en: 'march', enShort: 'mar', ru: 'март', ruShort: 'мар' },
-    { en: 'april', enShort: 'apr', ru: 'апрел', ruShort: 'апр' },
-    { en: 'may', enShort: 'may', ru: 'май', ruShort: 'май' },
-    { en: 'june', enShort: 'jun', ru: 'июн', ruShort: 'июн' },
-    { en: 'july', enShort: 'jul', ru: 'июл', ruShort: 'июл' },
-    { en: 'august', enShort: 'aug', ru: 'август', ruShort: 'авг' },
-    { en: 'september', enShort: 'sep', ru: 'сентябр', ruShort: 'сен' },
-    { en: 'october', enShort: 'oct', ru: 'октябр', ruShort: 'окт' },
-    { en: 'november', enShort: 'nov', ru: 'ноябр', ruShort: 'ноя' },
-    { en: 'december', enShort: 'dec', ru: 'декабр', ruShort: 'дек' },
-] as const;
-const MONTH_TOKENS = MONTHS.flatMap(month => [month.en, month.enShort, month.ru, month.ruShort]).join('|');
+const MONTHS = DELIVERY_RULES.months;
+const MONTH_TOKENS = MONTHS.flatMap(month => [month.en, month.enShort, month.ru, month.ruShort, month.dateName]).join('|');
 
 /**
  * Определение текущего режима сбора
@@ -59,17 +47,8 @@ export function isForTomorrow(text: string, referenceDate: Date): boolean {
     tomorrow.setDate(tomorrow.getDate() + 1);
     const tomorrowDay = tomorrow.getDay(); // 0 = вс, 1 = пн, ..., 6 = сб
 
-    const dayPatterns: Record<number, RegExp> = {
-        0: /(?:^|[^а-яa-z0-9])на\s+(вс|воскресенье|воскресенья)(?:[^а-яa-z0-9]|$)/i,
-        1: /(?:^|[^а-яa-z0-9])на\s+(пн|понедельник)(?:[^а-яa-z0-9]|$)/i,
-        2: /(?:^|[^а-яa-z0-9])на\s+(вт|вторник)(?:[^а-яa-z0-9]|$)/i,
-        3: /(?:^|[^а-яa-z0-9])на\s+(ср|среду)(?:[^а-яa-z0-9]|$)/i,
-        4: /(?:^|[^а-яa-z0-9])на\s+(чт|четверг)(?:[^а-яa-z0-9]|$)/i,
-        5: /(?:^|[^а-яa-z0-9])на\s+(пт|пятницу)(?:[^а-яa-z0-9]|$)/i,
-        6: /(?:^|[^а-яa-z0-9])на\s+(сб|субботу)(?:[^а-яa-z0-9]|$)/i,
-    };
-
-    const targetRegex = dayPatterns[tomorrowDay];
+    const dayAliases = DELIVERY_RULES.weekdays[tomorrowDay].aliases.join('|');
+    const targetRegex = new RegExp(`(?:^|[^а-яa-z0-9])на\\s+(${dayAliases})(?:[^а-яa-z0-9]|$)`, 'i');
     if (targetRegex && targetRegex.test(clean)) {
         return true;
     }
@@ -369,7 +348,7 @@ export function getBannerDateCategory(bannerText: string): 'today' | 'yesterday'
         const dayRegex = new RegExp(`(?:^|\\D)0?${day}(?:\\D|$)`);
         if (!dayRegex.test(clean)) return false;
 
-        if (clean.includes(month.en) || clean.includes(month.enShort) || clean.includes(month.ru) || clean.includes(month.ruShort)) return true;
+        if (clean.includes(month.en) || clean.includes(month.enShort) || clean.includes(month.ru) || clean.includes(month.ruShort) || clean.includes(month.dateName)) return true;
         const padMonth = String(monthIdx + 1).padStart(2, '0');
         if (clean.includes(`${day}.${padMonth}`) || clean.includes(`0${day}.${padMonth}`)) return true;
 

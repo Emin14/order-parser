@@ -1,3 +1,5 @@
+import { DELIVERY_RULES } from './delivery_rules';
+
 export type ShiftMode = 'DAY' | 'EVENING_NIGHT';
 export type MessageCategory = 'today' | 'yesterday' | 'dayBeforeYesterday' | 'older';
 
@@ -32,8 +34,8 @@ export function collectionSpy(entry: Record<string, unknown>): void {
 type BlockDisplayPart = 'previous-period' | 'collection-continuation' | 'current-period' |
     'previous-day-time' | 'previous-day-none';
 
-const DISPLAY_BOUNDARY_HOUR = 15;
-const WEEKDAY_LABELS = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'] as const;
+const DISPLAY_BOUNDARY_HOUR = DELIVERY_RULES.boundaryHour;
+const COLLECTION_CHANGE_HOUR = DELIVERY_RULES.collectionChangeHour;
 
 /**
  * Классифицирует отображение сообщения по календарной дате и времени.
@@ -45,7 +47,7 @@ function getBlockDisplayPart(messageDate: Date, time: string, now: Date): BlockD
     // Для отображения понедельничного сбора суббота с 15:00 и воскресенье
     // образуют один период. Переключение режима запуска в 18:00 и отбор
     // сообщений остаются в getCollectionContext/isMessageInCollection.
-    const mondayCollection = now.getDay() === 0 || (now.getDay() === 1 && now.getHours() < 18);
+    const mondayCollection = now.getDay() === 0 || (now.getDay() === 1 && now.getHours() < COLLECTION_CHANGE_HOUR);
     if (mondayCollection) {
         const saturday = new Date(today);
         saturday.setDate(saturday.getDate() - (now.getDay() === 0 ? 1 : 2));
@@ -68,7 +70,7 @@ function getBlockDisplayPart(messageDate: Date, time: string, now: Date): BlockD
 
 /** Единый вид отметки, когда нужна дата: «сб 31.10 11:21». */
 function formatDatedTimestamp(messageDate: Date, date: string, time: string): string {
-    return `(${WEEKDAY_LABELS[messageDate.getDay()]} ${date} ${time})`;
+    return `(${DELIVERY_RULES.weekdays[messageDate.getDay()].short} ${date} ${time})`;
 }
 
 function getBlockDate(block: CollectionTextBlock, now: Date): Date | undefined {
@@ -99,16 +101,16 @@ function hasEarlierTimestampBoundary(
 export function getCollectionContext(now: Date = new Date()): CollectionContext {
     const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const hour = now.getHours();
-    const mode: ShiftMode = hour >= 18 || hour < 6 ? 'EVENING_NIGHT' : 'DAY';
+    const mode: ShiftMode = hour >= COLLECTION_CHANGE_HOUR || hour < 6 ? 'EVENING_NIGHT' : 'DAY';
     const deliveryDate = new Date(day);
     if (hour >= 12) deliveryDate.setDate(deliveryDate.getDate() + 1);
     const shiftStart = new Date(day);
     if (hour < 6) shiftStart.setDate(shiftStart.getDate() - 1);
-    shiftStart.setHours(hour >= 18 || hour < 6 ? 18 : 6, 0, 0, 0);
+    shiftStart.setHours(hour >= COLLECTION_CHANGE_HOUR || hour < 6 ? COLLECTION_CHANGE_HOUR : 6, 0, 0, 0);
     const shiftEnd = new Date(day);
     if (mode === 'DAY') {
-        shiftEnd.setHours(18, 0, 0, 0);
-    } else if (hour >= 18) {
+        shiftEnd.setHours(COLLECTION_CHANGE_HOUR, 0, 0, 0);
+    } else if (hour >= COLLECTION_CHANGE_HOUR) {
         shiftEnd.setDate(shiftEnd.getDate() + 1);
         shiftEnd.setHours(6, 0, 0, 0);
     } else {
@@ -150,7 +152,7 @@ export function isMessageInCollection(
         return result;
     };
     if (context.mode === 'EVENING_NIGHT') {
-        if (now.getHours() >= 18) {
+        if (now.getHours() >= COLLECTION_CHANGE_HOUR) {
             if (category === 'today') return finish(dayOfWeek === 0 || checkTargetTime(hour, messageText, now), 'evening today');
             if (category === 'yesterday' && dayOfWeek === 0) {
                 const reference = new Date(now); reference.setDate(reference.getDate() - 1);

@@ -2,7 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Document, Paragraph, TextRun, Packer } from 'docx';
 import { OrderResult, MessageItem } from '../types';
-import { formatCollectionBlocks, getCollectionContext } from './collection';
+import { formatCollectionBlocks } from './collection';
+import { DELIVERY_RULES, stripDeliveryPhrase } from './delivery_rules';
 import { getBannerDateCategory, isMessageActual } from './date';
 
 const EXPORT_DETAIL_LOG = path.resolve(process.cwd(), 'export_detail.log');
@@ -32,7 +33,8 @@ const removableGreetingPhrases = [
     'здравствуйте', 'добрый день', 'добрый вечер', 'доброе утро',
     'доброе вечер', 'доброе день', 'доброе ночь', 'доброго дня',
     'доброго вечера', 'доброго утра', 'доброго ночи', 'доброй ночи',
-    'приветствую', 'привет', 'примите пожалуйста заказ', 'примите заказ пожалуйста', 'примите заказ'
+    'приветствую', 'привет', 'примите пожалуйста заказ', 'примите заказ пожалуйста', 'примите заказ',
+    'примите пожалуйста заявку', 'примите заявку пожалуйста', 'примите заявку'
 ];
 
 // Эти фразы удаляются только когда вся непустая строка состоит из них.
@@ -69,7 +71,7 @@ function stripGreetingsFromFirstLines(text: string): string {
         // Точные служебные строки проверяем во всём сообщении, включая
         // строки после составного заголовка филиала.
         if (isRemovableWholeLine(line)) return '';
-        if (checkedLines > 3) return line;
+        if (checkedLines > DELIVERY_RULES.introLineLimit) return line;
         const cleanedLine = line.replace(greetingRegex, ' ').replace(/[ \t]{2,}/g, ' ').trim();
         // После удаления вводной фразы могла остаться самостоятельная фраза
         // из списка whole-line (например, «Добрый день! Адам» -> «Адам»).
@@ -83,38 +85,6 @@ function stripGreetings(text: string): string {
     return stripGreetingsFromFirstLines(text)
         .replace(/👋(?:[\u{1F3FB}-\u{1F3FF}])?/gu, '')
         .trim();
-}
-
-/**
- * Удаляет из текста фразу "на завтра" (и её вариации с двоеточием)
- * если заказ написан после 15:00.
- */
-function stripTomorrowPhrase(text: string, time: string | undefined): string {
-    if (!time) return text;
-    const [hStr] = time.split(':');
-    if (!hStr) return text;
-    const h = parseInt(hStr, 10);
-    
-    // Если заказ написан после 15:00 (т.е. 15:00 - 23:59)
-    if (h >= 15) {
-        // Определяем целевую дату заказа
-        const targetDate = getCollectionContext(new Date()).deliveryDate;
-
-        const d = targetDate.getDate();
-        const dStr = String(d).padStart(2, '0');
-        const m = targetDate.getMonth() + 1;
-        const mStr = String(m).padStart(2, '0');
-
-        // Генерируем паттерн для даты (например: 1.10, 01.10, 1.10.24, 01.10.2024)
-        const datePattern = `(?:${d}|${dStr})\\.(?:${m}|${mStr})(?:\\.(?:\\d{2}|\\d{4}))?`;
-
-        // Убираем вариации "на завтра", "на 1.10", "заказ на завтра", "заказ на 1.10" и т.д. ТОЛЬКО в начале сообщения
-        const regexPattern = `^\\s*(?:(?:заказ(?:ы)?|заявка|закупка)\\s+)?на\\s+(?:завтра(?:\\s+${datePattern})?|${datePattern})\\s*[:.,;]?`;
-        const regex = new RegExp(regexPattern, 'i');
-
-        return text.replace(regex, '').trim();
-    }
-    return text;
 }
 
 export async function exportToWord(orders: OrderResult[], outputPath: string, fromTime?: string) {
@@ -340,7 +310,7 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                 msg.text = outerHeader ? `${outerHeader}\n${msg.forwardedText}` : msg.forwardedText;
             }
             msg.text = stripGreetings(msg.text);
-            msg.text = stripTomorrowPhrase(msg.text, msg.time);
+            msg.text = stripDeliveryPhrase(msg.text, msg.time, msg.date);
             if (!msg.text) continue;
 
             let rawBlocks = [msg.text];
