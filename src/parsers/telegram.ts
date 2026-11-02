@@ -5,6 +5,7 @@ import { OrderResult, MessageItem } from '../types';
 import { checkOrderDate, getBannerDateCategory, getCategoryDate, isMessageActual } from '../utils/date';
 import { findPageByUrl } from '../utils/browser_pages';
 import { collectionSpy } from '../utils/collection';
+import { mergeTelegramHistory } from '../utils/telegram_history';
 
 const TELEGRAM_SPY_LOG = path.resolve(process.cwd(), 'telegram_spy.log');
 function telegramSpy(message: string): void {
@@ -193,7 +194,16 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
                         }
                     }
 
-                    const msgObj: any = { type: 'message', sender: nameEl ? (nameEl.textContent || '').trim() : '', time: extractedTime, text: text.trim(), dateText: currentDateText };
+                    // ID берём только у самого сообщения, не у вложенной цитаты.
+                    // Если ID нет, слияние использует прежний текстовый ключ.
+                    const messageId = bubble.getAttribute('data-message-id')?.trim()
+                        || (bubble.getAttribute('id') || '').match(/^message-(\d+)$/)?.[1];
+                    const msgObj: any = { type: 'message', messageId, sender: nameEl ? (nameEl.textContent || '').trim() : '', time: extractedTime, text: text.trim(), dateText: currentDateText };
+                    if (!messageId) {
+                        msgObj.identityAttributes = Object.fromEntries(Array.from(bubble.attributes)
+                            .filter(attribute => attribute.name === 'id' || attribute.name.startsWith('data-'))
+                            .map(attribute => [attribute.name, attribute.value]));
+                    }
                     if (replyTo) msgObj.replyTo = replyTo;
                     results.push(msgObj);
                 }
@@ -201,25 +211,11 @@ async function extractActiveChatMessages(page: Page, fullChatName: string, chatD
             return results;
         });
 
-        telegramSpy(`SNAPSHOT chat=${JSON.stringify(fullChatName)} step=${step} items=${JSON.stringify(cur.map((item: any) => ({ type: item.type, time: item.time, sender: item.sender, preview: item.text.slice(0, 180) })))}`);
-        // Слияние сверху-вниз
-        let anchor = -1;
-        for (let i = cur.length - 1; i >= 0; i--) {
-            const item = cur[i];
-            const key = item.type === 'banner' ? 'b_'+item.text : item.sender+'_'+item.time+'_'+item.text.slice(0, 30);
-            const existIdx = rawElementsData.findIndex(x => (x.type === 'banner' ? 'b_'+x.text : x.sender+'_'+x.time+'_'+x.text.slice(0, 30)) === key);
-            if (existIdx !== -1) {
-                anchor = existIdx;
-            } else {
-                const entry = item;
-                if (anchor === -1) {
-                    rawElementsData.push(entry);
-                    anchor = rawElementsData.length - 1;
-                } else {
-                    rawElementsData.splice(anchor, 0, entry);
-                }
-            }
+        telegramSpy(`SNAPSHOT chat=${JSON.stringify(fullChatName)} step=${step} items=${JSON.stringify(cur.map((item: any) => ({ type: item.type, messageId: item.messageId, time: item.time, sender: item.sender, preview: item.text.slice(0, 180) })))}`);
+        if (step === 1) {
+            telegramSpy(`IDENTITY chat=${JSON.stringify(fullChatName)} missingIdSamples=${JSON.stringify(cur.filter((item: any) => item.type === 'message' && !item.messageId).slice(0, 3).map((item: any) => item.identityAttributes))}`);
         }
+        mergeTelegramHistory(rawElementsData, cur);
 
         const first = cur.find((x: any) => x.type === 'message');
         const firstText = first ? first.time + first.text.slice(0, 30) : '';
