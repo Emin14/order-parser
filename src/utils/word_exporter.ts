@@ -617,12 +617,12 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                                             .replace(/\s+/g, ' ')
                                             .replace(/^[\s:;,.!?\-–—]+|[\s:;,.!?\-–—]+$/g, '')
                                             .trim();
-                                        // После отделения филиала остаток может стать
-                                        // самостоятельной служебной строкой, например
-                                        // «Заказ ООО ПУР-ПУР Фирсово» -> «Заказ».
-                                        // Проверяем только такой точный остаток: фразы
-                                        // вроде «Заказ на завтра» сохраняются.
-                                        const cleanedRemainder = isRemovableWholeLine(remainder) ? '' : remainder;
+                                        // Отделение филиала может открыть вводный срок:
+                                        // «В аркаду на завтра» -> «на завтра». Проверяем
+                                        // только остаток заголовка тем же календарным
+                                        // правилом, затем удаляем точную служебную строку.
+                                        const withoutDelivery = stripDeliveryPhrase(remainder, msg.time, msg.date);
+                                        const cleanedRemainder = isRemovableWholeLine(withoutDelivery) ? '' : withoutDelivery;
                                         if (cleanedRemainder) {
                                             textBody = [cleanedRemainder, ...textLines].join('\n').trim();
                                         }

@@ -7,17 +7,17 @@ const JSZip = require('jszip');
 require('tsx/cjs');
 const { exportToWord } = require('../src/utils/word_exporter.ts');
 
-async function paragraphs(text, chatConfig, messageFields = {}) {
+async function paragraphs(text, chatConfig, messageFields = {}, messenger = 'VK') {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bar-kitchen-export-'));
     const previousDirectory = process.cwd();
     try {
         fs.writeFileSync(path.join(directory, 'cafes_config.json'), JSON.stringify({
-            vk: { chats: [{ name: 'Проверка', enabled: true, merge_same_spot: false, ...chatConfig }] }
+            [messenger.toLowerCase()]: { chats: [{ name: 'Проверка', enabled: true, merge_same_spot: false, ...chatConfig }] }
         }));
         process.chdir(directory);
         const output = path.join(directory, 'orders.docx');
         await exportToWord([{
-            messenger: 'VK', chatName: 'Проверка',
+            messenger, chatName: 'Проверка',
             messages: [{ sender: 'Клиент', phone: '', time: '23:07', text, ...messageFields }]
         }], output);
         const zip = await JSZip.loadAsync(fs.readFileSync(output));
@@ -42,6 +42,48 @@ async function withDate(instant, action) {
     };
     try { return await action(); } finally { global.Date = RealDate; }
 }
+
+const arcada = {
+    shared_chat: true, split_sub_orders: true, use_branch_name: true,
+    branches: [{ name: 'Аркада', aliases: ['аркаду'] }]
+};
+
+test('После отделения Аркады подходящий срок удаляется во всех мессенджерах', async () => {
+    await withDate(new Date(2026, 10, 4, 23), async () => {
+        for (const messenger of ['VK', 'Telegram', 'WhatsApp']) {
+            for (const term of ['на завтра', 'на четверг', 'заявка на 5.11', 'на 5 ноября']) {
+                const result = await paragraphs(`Здравствуйте! В аркаду пожалуйста  ${term} :\nБананы 2 кг\nАпельсины 20кг`, arcada,
+                    { date: '04.11', time: '15:43' }, messenger);
+                assert.deepEqual(result.map(p => p.text), ['Аркада:', 'Бананы 2 кг', 'Апельсины 20кг']);
+            }
+        }
+    });
+});
+
+test('После отделения филиала сохраняются чужой срок, старое сообщение и комментарии', async () => {
+    await withDate(new Date(2026, 10, 4, 23), async () => {
+        for (const [term, fields, expected] of [
+            ['на пятницу', { date: '04.11', time: '15:43' }, 'на пятницу'],
+            ['на 6 ноября', { date: '04.11', time: '15:43' }, 'на 6 ноября'],
+            ['на завтра', { date: '03.11', time: '20:00' }, 'на завтра'],
+            ['на завтра привезите к открытию', { date: '04.11', time: '15:43' }, 'привезите к открытию'],
+            ['на завтра', { date: '04.11', time: '' }, 'на завтра']
+        ]) {
+            const result = await paragraphs(`В аркаду пожалуйста ${term}\nБананы 2 кг\nАпельсины 20кг`, arcada, fields);
+            assert.ok(result.some(p => p.text === expected), JSON.stringify(result));
+            assert.ok(result.some(p => p.text === 'Бананы 2 кг'));
+            assert.ok(result.some(p => p.text === 'Апельсины 20кг'));
+        }
+    });
+});
+
+test('Без замены филиала каноническим именем исходный заголовок сохраняется', async () => {
+    await withDate(new Date(2026, 10, 4, 23), async () => {
+        const result = await paragraphs('Здравствуйте! В аркаду пожалуйста на завтра:\nБананы 2 кг',
+            { ...arcada, use_branch_name: false }, { date: '04.11', time: '15:43' });
+        assert.deepEqual(result.map(p => p.text), ['В аркаду на завтра:', 'Бананы 2 кг']);
+    });
+});
 
 test('ИП Каюмова: заявка на 2 ноября во второй строке удаляется, товары остаются', async () => {
     await withDate(new Date(2026, 10, 2, 10), async () => {
