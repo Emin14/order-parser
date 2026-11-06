@@ -77,7 +77,9 @@ const horizontalSpace = '[^\\S\\r\\n]';
 const explicitDate = new RegExp(`^(?:(\\d{1,2})\\.(\\d{1,2})(?:\\.(\\d{4}|\\d{2}))?|(\\d{1,2})${horizontalSpace}+(${monthNames})(?:${horizontalSpace}+(\\d{4}|\\d{2}))?)${termBoundary}`, 'iu');
 const weekdayTerm = new RegExp(`^(${weekdayNames})${termBoundary}`, 'iu');
 const tomorrowTerm = new RegExp(`^завтра${termBoundary}`, 'iu');
-const intro = new RegExp(`^${horizontalSpace}*(?:(?:заказы?|заявка|закупка)${horizontalSpace}+)?на${horizontalSpace}+`, 'iu');
+// «Овощи» здесь — необязательное уточнение заявки перед сроком.
+// Вводная часть удаляется только вместе с подтверждённым сроком поставки.
+const intro = new RegExp(`^${horizontalSpace}*(?:(?:заказы?|заявка|закупка)${horizontalSpace}+)?на${horizontalSpace}+(?:овощи${horizontalSpace}+)?`, 'iu');
 
 /** Сопоставляет срок и возвращает длину только подтверждённого совпадения. */
 function matchingTermLength(text: string, target: Date, messageAt: Date): number {

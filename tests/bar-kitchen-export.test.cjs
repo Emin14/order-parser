@@ -48,6 +48,16 @@ const arcada = {
     branches: [{ name: 'Аркада', aliases: ['аркаду'] }]
 };
 
+test('Хинкали выпивали: заявка на овощи 7.11 удаляется из Word после полуночи', async () => {
+    await withDate(new Date(2026, 10, 7, 0, 20), async () => {
+        for (const messenger of ['VK', 'Telegram', 'WhatsApp']) {
+            const result = await paragraphs('Заявка на овощи 7.11\n\nКартофель бейби - 5 кг\nПомидор Ростов- 10 кг',
+                { shared_chat: false }, { date: '06.11', time: '20:49' }, messenger);
+            assert.deepEqual(result.map(p => p.text), ['Проверка:', 'Картофель бейби - 5 кг', 'Помидор Ростов- 10 кг']);
+        }
+    });
+});
+
 test('После отделения Аркады подходящий срок удаляется во всех мессенджерах', async () => {
     await withDate(new Date(2026, 10, 4, 23), async () => {
         for (const messenger of ['VK', 'Telegram', 'WhatsApp']) {
