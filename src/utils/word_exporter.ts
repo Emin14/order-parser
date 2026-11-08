@@ -3,7 +3,7 @@ import * as path from 'path';
 import { Document, Paragraph, TextRun, Packer } from 'docx';
 import { OrderResult, MessageItem } from '../types';
 import { formatCollectionBlocks } from './collection';
-import { DELIVERY_RULES, stripDeliveryPhrase } from './delivery_rules';
+import { DELIVERY_RULES, stripDeliveryPhrase, stripOrderHeaderDeliverySuffix } from './delivery_rules';
 import { getTopUpRange, isMessageInTopUp } from './top_up';
 import { getBannerDateCategory, isMessageActual } from './date';
 
@@ -314,7 +314,8 @@ export async function exportToWord(orders: OrderResult[], outputPath: string, fr
                     // следующий этап примет только контекст за заголовок,
                     // а «Заказ бар/кухня» ошибочно останется в тексте заказа.
                     const sharedContext = chatConfig.shared_chat === true
-                        ? stripGreetings(msg.text.slice(0, firstHeading.index).trim())
+                        ? stripOrderHeaderDeliverySuffix(
+                            stripGreetings(msg.text.slice(0, firstHeading.index).trim()), msg.time, msg.date)
                             .replace(/\s+/g, ' ').replace(/[:\s]+$/g, '')
                         : '';
                     const firstBlock = (sharedContext ? `${sharedContext} ` : '')

@@ -131,3 +131,10 @@ export function stripDeliveryPhrase(text: string, time: string | undefined, date
         return line.slice(prefix[0].length + termLength).replace(/^(?:[^\S\r\n]|[:.,;])+/u, '').trim();
     }).join('\n').trim();
 }
+
+/** Убирает подтверждённый срок в конце общего заголовка заказа. */
+export function stripOrderHeaderDeliverySuffix(header: string, time: string | undefined, date: string | undefined): string {
+    const suffix = header.match(/^(заказ[^\S\r\n]+[^\r\n]+)[^\S\r\n]+(на[^\S\r\n]+[^\r\n]+)$/iu);
+    if (!suffix || stripDeliveryPhrase(suffix[2], time, date) !== '') return header;
+    return suffix[1].trimEnd();
+}

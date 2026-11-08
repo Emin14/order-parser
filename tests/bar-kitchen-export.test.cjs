@@ -43,6 +43,22 @@ async function withDate(instant, action) {
     try { return await action(); } finally { global.Date = RealDate; }
 }
 
+test('Срок в конце общего заголовка убирается при совпадении с поставкой', async () => {
+    await withDate(new Date(2026, 10, 8, 23, 37), async () => {
+        for (const [term, expected] of [
+            ['на понедельник', ''], ['на 9.11', ''], ['на вторник', ' на вторник'],
+            ['на понедельник к открытию', ' на понедельник к открытию']
+        ]) {
+            const result = await paragraphs(`Заказ ИП Лутикова Екатерина ${term}:\nЗаказ бар:\nЛимоны 5шт\nЗаказ кухня:\nАйсберг 3кг`,
+                shared, { date: '08.11', time: '23:25' });
+            assert.deepEqual(result.map(p => p.text), [
+                `Заказ ИП Лутикова Екатерина${expected} Заказ бар:`, 'Лимоны 5шт',
+                `Заказ ИП Лутикова Екатерина${expected} Заказ кухня:`, 'Айсберг 3кг'
+            ]);
+        }
+    });
+});
+
 const arcada = {
     shared_chat: true, split_sub_orders: true, use_branch_name: true,
     branches: [{ name: 'Аркада', aliases: ['аркаду'] }]
@@ -135,7 +151,9 @@ test('Запуск в 16:26: ПУР-ПУР, числовая дата и Каю�
 });
 
 test('Семья: общий контекст и бар/кухня становятся жирными заголовками в Word', async () => {
-    const result = await paragraphs('Добрый день!\nЗаказ на понедельник ИП Лутикова Екатерина:\nЗаказ бар:\nЛимоны 5шт\nЗаказ кухня:\nАйсберг 3кг', shared);
+    const result = await withDate(new Date(2026, 10, 2, 23, 30), () =>
+        paragraphs('Добрый день!\nЗаказ на понедельник ИП Лутикова Екатерина:\nЗаказ бар:\nЛимоны 5шт\nЗаказ кухня:\nАйсберг 3кг',
+            shared, { date: '02.11' }));
     assert.deepEqual(result, [
         { text: 'Заказ на понедельник ИП Лутикова Екатерина Заказ бар:', bold: true },
         { text: 'Лимоны 5шт', bold: false },
